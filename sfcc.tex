@@ -1,0 +1,2082 @@
+\documentclass[11pt]{article}
+\usepackage{geometry}
+\geometry{a4paper}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{enumerate}
+\usepackage{float}
+\floatstyle{boxed}
+\restylefloat{figure}
+\usepackage{subcaption}
+\usepackage{bussproofs}
+\usepackage{fancyvrb}
+\usepackage{xcolor}
+\usepackage[T1]{fontenc}
+
+\usepackage{setspace}
+%\doublespacing
+%\raggedright
+%\usepackage[parfill]{parskip}
+
+\newcommand{\highlight}[1]{\colorbox{black!30!white}{#1}}
+
+\newcommand{\type}{\star}
+\newcommand{\isType}[2]{#1 \vdash #2\;\textbf{type}}
+\newcommand{\hasKind}[3]{#1 \vdash #2:#3}
+\newcommand{\hasType}[4]{#1 #2 \vdash #3 : #4}
+
+\newcommand{\abs}[3]{\lambda (#1 :: #2)\;#3}
+\newcommand{\Abs}[2]{\Lambda #1. #2}
+
+\newcommand{\tuple}[1]{\langle{}{#1}\rangle{}}
+
+
+\newcommand{\Cue}{\textbf{Cue}}
+\newcommand{\Subcont}{\textbf{Subcont}}
+
+\newcommand{\newhandler}{\textsf{newCue}}
+\newcommand{\handle}[3]{\textsf{handle}[#1]\;#2\;\textsf{in}\;#3}
+\newcommand{\abort}[2]{\textsf{abort}[#1]\;#2}
+\newcommand{\capture}[2]{\textsf{capture}[#1]\;#2}
+\newcommand{\pushSubcont}[2]{\textsf{restore}\;#1\;#2}
+\newcommand{\onWind}[2]{\textsf{onWind}\;#1;\;#2}
+\newcommand{\onUnwind}[2]{\textsf{onUnwind}\;#1;\;#2}
+\newcommand{\onAbort}[2]{\textsf{onAbort}\;#1;\;#2}
+
+
+\newcommand\x{\lambda x}
+\newcommand{\letin}[2]{\textsf{let }#1\textsf{ in }#2}
+\newcommand{\tryfin}[2]{\texttt{try}\;#1\;\texttt{finally}\;#2}
+\newcommand{\withCont}[2]{\textsf{withCont}[#1]\;#2}
+\newcommand{\onExit}[2]{\textsf{onExit}\;#1;\;#2}
+\newcommand{\dynamicWind}[3]{\texttt{dynamicWind}\;#1\;#2\;#3}
+\newcommand\lseq{\mathbin\textrm{\guillemotleft}}
+
+\newcommand\F{\mathcal{F}}
+\newcommand\pmFpm{^\pm\F^\pm}
+
+\title{On secure first-class control}
+\author{Eric Demko}
+\date{} % delete this line to display the current date
+
+%%% BEGIN DOCUMENT
+\begin{document}
+
+\maketitle
+\tableofcontents\newpage
+
+\begin{abstract}
+First-class control (FCC) is a generic name for a variety of techniques for dynamically manipulating program control flow.
+The general claim is that FCC allows any control structure to be efficiently implemented within an existing language.
+While there has been considerable research into how the different FCC techniques relate to each other, how these techniques relate to software architecture is less well-developed.
+As such, FCC is commonly viewed as complex and error-prone: only a few languages incorporate it.
+Our claim is that native FCC can be integrated with existing control techniques, and that doing so reduces the likelihood of programmer error.
+%The main purpose of this paper is to develop a formal semantics with which language designers can reasonably integrate first-class control into production programming languages.
+
+
+%%% This was a first attempt at an abstract %%%
+%First-class control (FCC) offers techniques for efficient and clear implementation.
+%It takes its power from the ability to effect arbitrary re-arrangements of code execution order.
+%%On the other hand, the deterministic management of scarce resources is a prerequisite for secure programming.
+%%As resources leak, opportunities are opened for denial-of-service attacks, and chained exploits.
+%%First-class control has not yet been integrated into major production programming systems, perhaps because it is not known how the operators interact with resource management.
+%This re-arrangement can easily lead to developer confusion and therefore also the introduction of serious programming flaws.
+%The goal of this paper is find a formulation of FCC that significantly reduces the likelihood of programmer error without sacrificing its expressive power.
+%Ideally, this would pave the way for major production programming systems to incorporate FCC and thereby increase their expressivity without sacrificing security.
+
+In this paper, we develop the semantics of a lambda calculus incorporating secure, expressive and convenient first-class control.
+Our formulation unifies continuations with other non-local control constructs, esp. including exceptions and transactions.
+We demonstrate the utility of our system with examples of advanced constructs that may be efficiently implemented by users.
+Ideally, this would pave the way for major production programming systems to incorporate first-class control and thereby increase at once their expressivity and security.
+\end{abstract}
+
+\section{Introduction}
+
+Despite being deeply interconnected, where exceptions are widely implemented and used, first-class control (FCC) is viewed as dangerously complex -- a tool only for gurus -- and therefore shunned by production programming systems.
+Nevertheless, exceptions admittedly come with their own dangers: failure to achieve ``exception safety'' renders systems vulnerable to slowdowns, crashes, and data corruption.
+Now it is reasonably easy to check for exception safety, so many developers have judged the advantages of exceptions to outweigh the risks.
+
+The main contribution of this paper is an operational semantics unifying:
+\begin{itemize}
+\item an operational semantics unifying both higher order first-class control and non-local control protection, which
+\item easily simulates all major forms of non-local control flow, and
+\item offers a route to more powerful languages no more dangerous than existing exception-handling systems.
+\end{itemize}
+These semantics
+%The main contribution of this paper is a unification of exceptions, continuations, and several other control structures, thereby offering first-class control more powerful than exception systems, while also no more dangerous.
+In the process, we review the non-local control flow techniques already implemented in production programming languages
+We also implement our system to illustrate several applications of our system of FCC.
+We further point to several additional variations, laying the foundation for discussion to determine the ideal primitives for FCC.
+
+\section{Overview}
+
+\subsection{Fundamental Concepts}
+When we---as humans---evaluate a complex expression, we engage in a two-fold process: 1) focus on and evaluate a particular subexpression, and 2) remember that once we have suitably simplified the subexpression, we need to substitute back into to our original expression.
+As we iterate this process, we build up a stack of expressions to which we will need to return; this stack is called a \emph{continuation}.
+First-class control (FCC) simply means being able to access the continuation and use it as a first-class value.
+This definition is of course somewhat informal, but a more rigorous definition is not widely available, perhaps due to the breadth of variations and relative rarity of its implementation.
+
+We now turn to the salient features of FCC as regards this paper.
+Implementations of FCC are considered in languages that use a control stack.
+A full system of FCC requires a few operations to be available.
+Using FCC begins when some topmost section of the control stack is selected and saved elsewhere in memory (\emph{captured}), removed from the stack (\emph{aborted}), and made available to the programmer as a piece of data (\emph{reified}).
+This stack section can be copied back onto the main control stack (\emph{restored}) at any later time, even multiple times.
+In contrast, exceptions remove a section of the control stack, but do not reify it and usually cannot restore it\footnote{Some exception mechanisms may capture the stack behind the scenes for use in generating stack traces, but do not allow direct access the continuation. Generating a stack trace is a distinct operation from continuation capture.}.
+
+\subsection{Motivation}
+
+While the above definition is accessible to implementors, it leaves the advantages of first-class control opaque to the programmer.
+The advantage of FCC is that \emph{it allows for the abstraction and reuse of any pattern of control flow}.
+That is, any control flow structure, no matter how complex, can always be centralized to reduce maintenance costs.
+First-class control is thus a natural extension of existing high-level languages, which have already brought the power of abstraction to patterns of algorithm, data, and syntax.
+%FIXME do I want to include module organization in the above list?
+
+As a simple example, a common pattern is an accumulation loop with early-exit.
+We can use FCC to efficiently implement this pattern and reuse it without difficulty, as in Figure~\ref{fig:ex-foldl/ee}.
+We will give further analysis in \S\ref{sec:foldl/ee} after we have developed our system of first-class control.
+
+\begin{figure}
+\caption{Define the accumulation loop with early exit}
+\label{fig:ex-foldl/ee}
+\begin{verbatim}
+(define (foldl/ee zero xs body)
+   (define mark newCue)
+   (define (break val) (abort mark val))
+   (handle mark id
+      (foldl zero xs (body break))))
+
+(define (all? xs p)
+   (foldl/ee true xs (lambda (break acc x)
+      (if (p x)
+          true
+          (break false)))))
+\end{verbatim}
+\end{figure}
+
+Expressivity---the reduction of manual pattern-based programming---is not however a goal in itself.
+Rather, expressive power should be used to increase the quality of the software, both in terms of efficiency and reliability.
+Native first-class control enables just such an improvement.
+Consider: library writers often create interfaces---esp. for working with external resources---that require the exposed procedures to be used in rigidly constrained orders.
+With first-class control, library writers can codify these patterns in executable code rather than mere documentation.
+
+\begin{figure}
+\caption{File API without FCC}
+\label{fig:fileAPInoFCC}
+\begin{verbatim}
+(define (open filepath mode) ...) ;; returns a file handle
+
+;; once you're done with the file, call this or the resource will leak
+(define (close handle) ...)
+
+;; don't call read or write on a file that's been closed,
+;; or Bad Things(TM) will happen!
+(define (read handle) ...)
+(define (write handle bytes) ...)
+\end{verbatim}
+\end{figure}
+
+As a simple example, consider the hypothetical API for working with files given in Figure~\ref{fig:fileAPInoFCC}.
+Improper ordering to any of these four procedures at runtime can cause a supposedly-reliable system to fail.
+Although the requirements on the structure of control-flow are documented, they are not enforced by the language.
+Thus, if the programmer has incomplete knowledge of the documentation or of his program, it is likely that one of these requirements will be violated.
+
+\begin{figure}
+\caption{File API with FCC}
+\label{fig:fileAPIFCC}
+\begin{verbatim}
+(define (withFile filepath mode body) ... (body the_handle) ...)
+(define (read handle) ...)
+(define (write handle bytes) ...)
+\end{verbatim}
+\end{figure}
+
+With FCC, we can present a different interface by combining the effects of the \texttt{open} and \texttt{close} procedures into a single higher-order procedure \texttt{withFile}.
+The \texttt{withFile} procedure opens the file, exposes it only to the \texttt{body} procedure, and ensures that the file will be closed immediately after the body is finished.
+Such an interface is not only smaller, and therefore easier to comprehend, but also guarantees that the file handle is used in accordance with the control-flow structure requirements.
+Simply by interface design, we can ensure\footnote{For reasons of space, we have not shown how to ensure that a file handle does not escape from the body of \texttt{withFile}. A technique to do this is well-known\cite{StateInHaskell}, which we will exploit in \S\ref{subsec:encapsulation} to make a different encapsulation guarantee.} that read/write cannot be performed on a closed file and file handles are closed quickly.
+In this way, any possibility of the aforementioned programmer errors is eliminated.
+Even when control-flow dependencies become complex, FCC is still able to encapsulate the complexity, providing APIs that are resilient even in the face of incomplete programmer knowledge.
+Without first-class control, such guarantees are generally impossible to obtain practically.
+
+
+There are downsides to first-class control. After all, ``an increase in expressive power comes at the expense of less `intuitive' semantic equivalence relations.''\cite{Felleisen90expressive}
+For FCC in particular, we lose the property that the order of argument evaluation should not alter the result.
+%Even worse, we may lose the ability to easily map from the static source code to the dynamic control flow of a program.
+The implications for program reliability and security are poorly-understood, and are assumed to be significant.
+On the one hand, this means that managers of sensitive production systems should be skeptical of FCC, but on the other, it means that no-one is capable of systematically evaluating the relative advantage of incorporating it.
+
+There are two broad alternatives to native first-class control.
+First, a programmer may fall back on pattern-based programming.
+This is an insidious alternative, being both very easy to accomplish when first writing the software, but very difficult to untangle and maintain later.
+In general, many properties of pattern-based programs cannot be verified with anything short of whole-program analysis.
+Furthermore, the structure and intent of such a system is entirely opaque from the source code.\cite{Felleisen90expressive}
+Both of these drawbacks significantly raise the both the cost of maintenance and the risk of damage due to the program.
+We shall see concrete examples of this in our review.
+
+Second, it is possible to simulate first-class control with varying ease depending on the host language.
+It is our opinion---after Greenspun's Tenth Rule---that these implementations will, with overwhelming probability, be incomplete, ad-hoc, buggy and/or slow.
+In particular, it is difficult to arrange that simulated FCC will not interfere with existing control operators.\cite{addDelimControlProduction}
+Furthermore, simulation may increase the expected size-complexity of the simulated operators.\cite{finalShiftForCallcc}
+In this case as well, the drawbacks are not~likely worth the costs and risks in a production system.
+%Examples of simulated FCC already exist in the literature (CITEME I know of the javascript one at least), but nevertheless fail in one or more aspects.
+
+It is clear then, that if we are to maximize the reliability and security of computer systems without sacrificing efficiency, we must develop a system of first-class control wherein programmers may easily develop intuitions about program equivalence.
+This is exactly the task we solve in this paper.
+We will not argue that we have the unique best possible solution, but our system is clearly the beginning of the end for the confusion that has previously surrounded first-class control in production languages.
+
+\subsection{Our System}
+
+TODO What are the advantages of our system?
+It is formally specified.
+It allows for static typing (for which we give natural deduction axioms).
+It unifies a wide range (all major) control operators already deployed.
+It provides for deterministic resource initialization and cleanup, even in the presence of arbitrarily complex non-local control.
+Efficient implementation techniques are known for similar systems or subsystems.
+It is somewhat modular, allowing language designers to pick-and-choose subsets appropriate for their goals rather than start from scratch (esp. without theorems).
+
+TODO how does it relate to other systems?
+We split the primitives up roughly along the same lines as MFDC.
+However, we extend MFDC along the lines of fcontrol: delimiters include a handler, rather than force the control operator to provide one.
+The control operator is intimately connected with throw, since it only takes a value; thus, exception handling can be implemented entirely in terms of a stock delimiter.
+So far as we know, there is no formal system concerning the control guards we develop, though we are inspired by D's scope statemetns and Scheme's dynamic-wind. 
+
+Note however, that the reliability[TODO this isn't the right word] of this system is not complete.
+The static type/effect system is not entirely sound: the system introduces a family of program crashes caused by aborting beyond program halt which cannot be statically detected.
+We do not believe this to be a cause for concern; after all, this same family of crashes is present in any system of unchecked exceptions.
+Further, it is this author's opinion that without a focus on lexical scoping and immutable values, our system -- perhaps any FCC system -- has the potential to introduce incidental complexity which can hinder maintenance and performance.
+We refer the reader to Stroustrop's discussion\cite{evolutionCplusplus} of the complex exception system in Mesa.
+The combination of FCC with unrestricted mutable state is probably always a design error.
+
+\subsection{Structure of this Paper}
+
+In Part One, we examine a number of control flow constructs that already exist in production programming systems, first looking at exception handling, then at existing first-class control operators.
+We consider resource-acquisition-is-initialization in \S\ref{RAII} and try-catch-finally in \S\ref{try-finally}.
+We also look at some less-widely implemented structures.
+Python's with-statement and C\#'s using-statement share properties detailed in \S\ref{context-statements}.
+Go's defer-expressions and D's scope-statements are described in \S\ref{defer}.
+Monads are examined in \S\ref{subsect:exceptionMonads} specifically in the context of Haskell, though they can also be used in other statically-typed functional languages.
+in \S\ref{sec:FCC} we turn to first-class control, beginning with a small tutorial.
+In \S\ref{undelimControl} and \S\ref{delimControl} we turn to first-class control operators.
+In \S\ref{dynamic-wind} we explain Scheme's dynamic-wind construct for managing resources under FCC.
+A broad analysis of these constructs' capabilities is given in \S\ref{sec:review}.
+
+In Part Two, we apply the lessons learned in Part One to analyze a novel system of first-class control.
+The system is fairly large, but can be split into a few small components.
+We give an informal introduction to the system in \S\ref{system-overview} and point the reader towards its historical influences.
+In \S\ref{sec:evaluation}, we give the dynamic semantics of the system using a transition system.
+%We develop a static semantics suitable for impure languages in \S\ref{impureStatics}, then, in \S\ref{pureStatics}, we adapt the statics to a series of richer type systems suitable for use in pure languages.
+In \S\ref{relationship}, we show how our system can macro-express several of the most important non-local control operators already being used.
+To exemplify the control operators, we have implemented a toy language which we describe in \S\ref{application} along with several code examples implementing useful sizable flow abstractions.
+
+We would have liked to have developed a type system, which would aid in detecting several classes of error.
+However, time constraints prevented us from establishing the appropriate soundness proofs.
+Rather than present low-quality conjectural work here, we leave this to later research.
+As our system is based on a typed system of FCC\cite{MFDC}, we are confident that such a type system exists; it only remains to find the most convenient formulation
+
+%\subsection{Strategy}
+%FIXME this section probably just need s a rewrite
+%
+%The main body of the thesis hinges on two key ideas.
+%First, the interactions between resource management and exception handling are well-known.
+%Second, provided a continuation-capture operator (without the associated abort), delimited control can be implemented with an exception mechanism.
+%Therefore, instead of attempting to begin with delimited control and work towards resource management, our strategy will be to begin with exceptions, wherein resource management is well-understood, and work towards delimited control.
+%
+%In order to simplify our analysis, we will place several reasonable restrictions on the sort of languages we are considering.
+%In particular, we focus on pure functional languages based on System F.
+%The key ingredients are immutable values and rich, sound type- and effect-systems.
+%In a language with first-class control, it is very important to understand the flow of values and effects through the system, and these features allow for easy analysis.
+%
+%Specifically, immutable values are immune to data-corruption issues, which can easily occur when the system's control-flow is not fully understood.
+%Data corruption vulnerabilities occur very commonly, especially when first-class control is a possibility, but also when concurrency is involved, or even simply when the code base is maintained by multiple people or over a long period of time.
+%
+%An effect system allows us to statically verify where side-effects are possible and impossible.
+%The particular effect we need to track in this paper is non-local control flow.
+%Non-local control can cause crashes; a familiar example is uncaught exceptions.
+%An effect system can statically verify that there are no uncaught exceptions, thereby increasing the reliability of the language.
+%A type system likewise increases reliability through eliminating fatal type mis-matches statically.
+%Using type- and effect-systems allows programmers to prototype interfaces, verify interfaces, and evaluate the equivalency of program fragments.
+%In practice, this leads to programmers using code more correctly, more easily detecting and fixing errors, and more easily restructuring code.
+%
+%The type- and effect-systems must be sufficiently rich to allow programmers to abstract and reuse any pattern of computation.
+%We need to be able to type reusable higher-order functions, as well as encapsulate effects locally. In addition, it will be useful to integrate the effect system into the type system.
+%For our purposes, a rich type system is then one which allows higher-order, higher-rank universally quantified types and type constraints.
+%We may also have used parametric modules, such as in ML dialects,  in place of type constraints, but we found these to be more powerful and correspondingly more complex than type constraints.
+%
+%Since much first-class control research has been driven in the context of Lisp-dialects, these stipulations may seem odd and overly restrictive.
+%However, languages such as ML and Haskell have shown that these restrictions are not onerous for the programmer.
+%In fact, in large systems where reliability is a priority, these characteristics have proven to be especially valuable.
+%Further, the apparent cumbrance of these features is mitigated by the use of monads to compose effectful computations.
+%
+%Even though the type system we propose to work within allows us to make many simplifying assumptions, it is fairly complex internally.
+%Therefore, we will incrementally take advantage of its features as we develop control calculus.
+%At each stage, more richness will be required, but more static guarantees can be made that increase reliability.
+%Finally, we will have developed a system of first-class control with is both efficient and reliable, and therefore suitable for secure, production systems.
+
+%\section{SOMEWHERE}
+%
+%
+%From HDBC docs: ``Bad Things (TM) could happen if you call this [disconnect function] while you have Statements active. In more precise language, the results in such situations are undefined and vary by database. So don't do it.''
+%
+%The security of a system depends on its developers, even though they generally are unable to grasp the subtleties of the entire system at once.
+%Therefore, we wish to make the secure solution also the path of least resistance.
+%%In our review, we will also highlight aspects of language features that cannot be easily abstracted.
+%% After all, at 4:58 on a Friday you've just gotten it to work in the success case and are ready to go home, so you commit your code. What are the chances that you remember Monday to review exception safety on all that hairy work that so frustrated you friday? What are the chances QA will discover the rare and subtle non-local control flow bug? Does your organization have a QA department? Development practices are imperfect, and even if they were perfect, they would still inevitably be violated at some point in the development of any significant system. Making the path of least resistance closely follow the most secure path will provide developtime defense-in-depth and lead to more robust systems.
+%
+%
+%
+%
+%Library authors often document their API with terse, informal specifications of the correct patterns of use of their functions. (HDBC example above, numerous cases in openGL)
+%A user of the library may not read that piece of documentation, remember it, understand it, or be able to correctly apply it in their own complex code; in such cases, the reliability of the user's program may be comprimized.
+%When the author of a library can specify their own control structures, there is no need for these restrictions.
+%That is, the library itself can guarantee correct patterns of use regardless of the user.
+%FCC offers exactly that capability to library writers, simplifying use of the library and enabling client code to be more reliable more easily.
+
+\part{Literature Review}
+
+If we are to unify existing systems of control flow, we must examine a wide range of existing control structures. To maintain our focus on reliability, we restrict our examination to those control features available in production languages. First, we will focus on non-local control flow without continuation capture: exceptions and related concepts. Then, we will examine first-class control as it exists in Lisp dialects, to date the only production languages which support a variety of first-class control operators. Our goal is to identify successful patterns of control flow for use both as inspiration for our control calculus, and also as a sanity check to ensure that the control calculus developed is expressive enough for general use.
+
+\section{Exception Handling}
+
+\subsection{RAII}
+\label{RAII}
+
+One of the very first methods developed for automatic resource cleanup is called ``resource acquisition is initialization'' or RAII.
+The technique fundamentally relies on ad-hoc polymorphism and appears only in object-oriented languages.
+It ties an object's initialization and deinitialization to its lifetime using a constructor(s) and destructor.
+
+In C++, when an automatic variable becomes unavailable, such as when it goes out of scope or its stack frame is removed, its destructor (if any) is implicitly called.
+RAII takes advantage of this feature by placing any relevant cleanup code into the destructor.\cite{cplusplusLanguage}
+Since the lifetime of automatic variables is easily apparent, RAII performs deterministic cleanup.
+However, C++ cannot detect lifetimes of heap-allocated data, and so for these objects, destruction must be performed manually.
+Manual memory management is not only expensive to develop, but also contributes to serious bugs which can easily compromise secure systems.\cite{WeimerNecula08}
+
+
+In Java, C\#, and similar languages which use garbage collection, destructors\footnote{Some languages call these ``finalizers'', but the result is essentially the same.} are called when an object is collected.
+Unfortunately, the time to detect, and therefore cleanup unreachable objects is non-deterministic.\cite{JavaStandard}\cite{cSharpStandard}
+%(TODO also, there are no guarantees about which objects are cleaned before others) 
+Whenever the resource is not in physically infinite supply, the garbage collector will race the program to maintain the illusion of automatic cleanup.\cite{WeimerNecula08}
+Further, the order in which objects are finalized during garbage collection cannot be predicted, so the technique is unsuitable when there are ordering dependencies between several objects' finalizers.\cite{WeimerNecula08}
+%Depending on the implementation, the teardown code may never be executed, such as when a program terminates without having collected all its allocated memory.
+This should not be surprising, since garbage collectors are meant mainly to free up memory during program execution rather than as a means of registering callbacks.
+In short, the use of finalizers tied the the garbage collection cycle is not a generally suitable technique for timely and correct resource management.
+%This author finds it unlikely that any cross-platform garbage collector can be trusted to reliably call destructors appropriately.
+%Since the common case is that memory needs to be reclaimed without cleanup, the advantages of garbage collection commonly outweigh the risks due to the resulting non-deterministic RAII.
+
+
+RAII succeeds well when faced with managing external resources such as database connections, but when faced with internal, logical state management, it offers no advantage.
+For example, in languages with garbage collection, the lack of determinism can mean that RAII is even technically unsuitable.
+Beyond the technical limitations of RAII, there is also a psychological one.
+Every definition of cleanup code needs its own class definition, which is quite large considering the few lines that are really important.
+With these pressures, programmers will, with good reason, shun RAII and resort to ad-hoc techniques that are likely to introduce other flaws.
+
+
+\subsection{Try-finally}
+\label{try-finally}
+
+Try-finally is a fairly simple idea: whenever and however control exits from the \texttt{try} block, the code in the \texttt{finally} block will be executed.
+The ubiquity of try-finally can be traced to several advantages.
+In this approach, cleanup is deterministic.
+Try-finally and throw constructs are also easy to detect and reason about both programmatically and visually, making auditing for exception safety straightforward.
+Finally, control flow during exception handling is particularly transparent compared to other non-local control techniques.
+
+Unfortunately, the transparency of exception handling is largely due to the fact that exception handling code cannot be abstracted;
+it is transparent in the sense that it is always exposed.
+Mainstream OO languages effectively force developers to resort to pattern-based programming, writing out common exception handling code for every use.
+As mentioned before, pattern-based programming is costly: it requires developers to take time writing more code, and opens the code to regressions during maintenance.
+
+Consider the code pattern in Figure~\ref{tryPattern} for example.
+In the pattern, \textit{A} is to be replaced by some business logic and \textit{B} by any additional cleanup.
+If any code within the \textit{B} slot could throw an exception, then \texttt{connection} will not be closed as intended.
+If, for example, some logging were to be added in \textit{B}, an I/O error could occur -- in a distributed system, a simple network outage is sufficient -- causing an additional exception before the rest of the cleanup and preventing the connection from being closed.
+This example is very simple both for reasons of space, but also because it is at the core of the problem.
+For a thorough examination of examples found in the wild, we refer the interested reader to \cite{WeimerNecula08}.
+
+\begin{figure}[h]
+\caption{Try-finally Pattern}
+\label{tryPattern}
+\begin{verbatim}
+try {  
+    var db_connection = new DBConnection(...);
+
+    A...
+}
+finally {
+    B...
+
+    if (db_connection != null)
+        db_connection.close();
+}
+\end{verbatim}
+\end{figure}
+%        EmailerClass.EmailMe("ret = " + ret.ToString() + "!!!");  
+
+Different programming languages have very different semantics in the event an exception attempts to propagate beyond a catch or finally block.
+Many languages, including Java and Python, allow the new exception to propagate, sometimes with additional information in the stack trace.
+Perhaps the most reliable solution is to instead terminate the program, as in C++.\cite{evolutionCplusplus}
+This decision reflects the notion that an exception handler must be exception-safe.
+That is, an exception handler should only do trivial cleanup tasks, not respond with exception-prone actions.
+Guaranteeing this level of exception-safety is the first of two major solutions to mitigate the problems of try-finally.
+
+Now, exception safety may be automatically determined by the compiler using checked exceptions.
+However, checked exceptions have largely been rejected in production designs.
+Although Java does have a checked exception system, safety is only checked at the method-level, not as relates to the example here.
+Further, the system co-exists with the more-commonly-used unchecked exception system.
+Support for checked exceptions is lacking largely because checked exceptions in Java have evidenced their uselessness and inconvenience in common languages (such as Java, C++, and C\#), and of course because they are quite impossible in dynamic languages.
+
+The second solution, in a language with good support for first-class functions\footnote{By good support, I mean that the language should make it easy to use functions in a first-class manner. In particular, the syntax should not be overly verbose, static scoping should be default, and tail call optimization should be performed. Many common languages, such as Java, C, C++ and Python do not meet these requirements even though they technically allow first-class functions.}, to the problems of Example~\ref{tryPattern} is to use continuation-passing style (CPS).
+The best example of this technique is in Ruby, where it is unobtrusive to pass a single continuation during function call.
+For example, Ruby users can simply write \texttt{File.open("example.txt", "r") do |fp| ... end}, where cleanup is centralized in the \texttt{.open} method, and the user can supply their own file manipulation code in the block.\cite{programmingRuby}
+
+Unfortunately, most languages are not able to do this so cleanly, either because they have not (yet) adopted first-class functions, or because the CPS transform must be manually performed.
+Indeed, even in Ruby only a single continuation can be passed naturally; as soon as a second is needed, manual transformation is required.
+We have yet not mentioned lazy languages, but it turns out that these are unsuitable as well.
+Although they can fully overcome the syntactic issues, lazy languages erode determinism, which is the key benefit of try-finally.
+Additional techniques can restore the determinism, but we will return to this issue in Section~\ref{subsect:exceptionMonads}.
+
+The combination of unchecked exceptions and the inability to abstract is detrimental to reliable programming.
+Careful code review may be able to mitigate these exception-safety bugs, but from both accuracy and cost-efficiency standpoints, it would be much better to have compiler support.
+
+
+\subsection{Context Statements}
+\label{context-statements}
+
+TODO Java 1.7 now has the ``try-with-resources statement''
+
+The development of of the ``with statement'' in Python and the ``using statement'' in C\# bears a remarkable resemblance to the development of the for-each loop.
+The for loop was so commonly used as \verb|for(x = start(xs); notAtEnd(x); x = getNext(x)) {...}| that language designers decided to codify this pattern as the syntax \verb|foreach x in xs {...}|.
+Similarly, the pattern in Figure~\ref{tryPattern} is so common that some language designers have chosen to codify the pattern as \verb|with x = some_resource {...}|.
+Although Python and C\# each use different names and syntaxes for largely identical concepts, for simplicity we will simply refer to both constructs as ``context statement''.
+
+The key ingredients of a context statement are an expression and a block.
+The statement may also bind the result of evaluating the expression to a variable for use inside the block.
+Further, the result of the expression is meant to be equipped with subtype-polymorphic setup and teardown code.
+Before the block is entered, the setup code is executed, and just before the block is exited, by any means, the cleanup code is executed.\cite{PEP343}\cite{cSharpStandard}
+
+
+
+%(ohh, hey, since they are deterministic, we can use them for dynamic binding: makes a good example)
+%parameterize(name, val) returns a FluidCxt with appropriate exit code
+%there's a global db of fluidvars
+% a function fluidVar(name) gets the current value
+
+%\begin{verbatim}
+%_fluidVars = dict()
+%_sentinal = object()
+%
+%def getFluid(name):
+%    return _fluidVars[name]
+%
+%class parameterize:
+%    def __init__(self, name, value):
+%        self.name, value = name, value
+%    
+%    def __enter__(self):
+%        if self.name in _fluidVars:
+%            self.old = _fluidVars[self.name]
+%        else:
+%            self.old = _sentinal
+%        _fluidVars[self.name] = value
+%
+%    def __exit__(self, *args):
+%        if self.old is _sentinal:
+%            del _fluidVars[self.name]
+%        else:
+%            _fluidVars[self.name] = self.old
+%\end{verbatim}
+
+
+%in python, you can at least define a context manager in a functino rather than a class; very similar to RAII, but adds determinism in gc'd languages
+
+
+%Perhaps in response to the problems illuminated by Figure~\ref{tryPattern}, some languages have incorporated the design into the language definition. This includes the with-statement in Python and the using-statement in C\#. These statements include an expression and a block of code. After the expression is evaluated and optionally bound to a name for the scope of the block, some setup code is executed before the block is executed. No matter how control exits from the block, cleanup code is guaranteed to be executed before continuing. Dispatch to both the setup and cleanup code are determined by the result of the expression, and generally involves ad-hoc polymorphism.
+
+Figure~\ref{withStatement} is an example of a with-statement in Python (the corresponding C\# version is only superficially different).
+In it, the expression \texttt{open(filePath, 'r')} opens a file in read-mode.
+In this case, no additional setup is given, so the resulting file handle is bound to \texttt{fp}.
+The body of the statement is then executed.
+If no exceptions are raised, then immediately after the block, the cleanup code is called on the file handle; in Python, this is the \texttt{\_\_exit\_\_} method.
+If an exception is raised in the body, then the cleanup method is called with the exception details before propagating the exception.
+In the specific case of file handles, the exit method simply closes the file.
+
+\begin{figure}[h]
+\caption{With-statement}
+\label{withStatement}
+\begin{verbatim}
+with open(filePath, 'r') as fp:
+    do_something(fp)
+\end{verbatim}
+\end{figure}
+
+Figure~\ref{withStatement} maps neatly to the pattern of Figure~\ref{tryPattern}.
+As such it retains advantages of the more general exception-handling approach, in particular determinism.
+It saves only a very little in source code size, but importantly, its use does not offer any ability to compromise the exception-safety of the handler.
+Because the try-finally pattern is so ubiquitous, preferring context statements eliminates many opportunities  error.
+In this author's experience, the benefits for program maintenance outweigh the cost of a slightly larger language.
+However, there are inherent limitations with strategy of na\"ively codifying patterns into syntax as has been done with context statements and for-each loops.
+
+\begin{figure}[h]
+\caption{Accumulation loop}
+\label{accumLoop}
+\begin{verbatim}
+acc = start_value
+foreach x in xs:
+    acc.add_element(x)
+\end{verbatim}
+\end{figure}
+
+Consider for the moment the standard accumulation pattern give in Figure~\ref{accumLoop}.
+This is a very common pattern, but it has not been codified into the syntax of any language, even though there are multiple locations where errors can be introduced.
+For example, the loop body may contain an early exit, a conditional path may accidentally omit an addition to the accumulator, and so forth.
+In contrast, consider the higher-order functions \texttt{map} and \texttt{fold}.
+The \texttt{map} function corresponds to for-each, and \texttt{fold} solves accumulation problems, but importantly, \emph{they are not built into the language}.
+As such, higher-order functions are able to codify many looping constructs without extending the language.
+
+Similarly, context managers solve one particular problem very well, but cannot be generalized.
+Context managers are unable to encode patterns of stopping error propagation, logging errors, and so forth.
+No matter how many special control constructs we add to the language, there will always be patterns that have not been codified; such a language is fundamentally limited in its abstractive power.
+It is perhaps best said: ``it is impossible to anticipate all possible needs for control abstractions during the design of a programming language.''\cite{ControlDelimitersHierarchy}
+
+Finally, we mention some contact with the RAII approach.
+In particular, both solutions externalize the setup-cleanup code pairing to another class.
+One may think the strategies share the problems of one-off cleanup logic, but it turns out that for single-use scenarios we can instead use try-finally.
+Switching to try-finally does not increase the likelihood of programmer error, because in either case there is one definition of the logic: in-line with try-finally, versus in an external class with context managers.
+It is only when a definition is re-used (or copy-pasted) that the possibility for error increases.
+
+
+\subsection{Defer Statements}
+\label{defer}
+
+The languages D and Go share a similar language feature whereby expressions may be registered to be evaluated before the call stack unwinds (CITE D and Go standards). We will call these statements ``defer statements'' after Go terminology\footnote{D calls them ``scope guard statements''.}. This particular feature is quite new, so there are several differences between the two languages, though they share the same idea.
+
+In the case of Go, each stack frame maintains an additional stack of unevaluated expressions. When control reaches a defer statement, $\texttt{defer}\;e$, the expression \textit{e} is pushed to the stack, but not evaluated. When the stack frame is popped (whether from normal return or due to an exception), the expressions it had built up are evaluated in the reverse order they were pushed.
+
+\begin{figure}[h]
+\caption{Go-style defer-statement}
+\label{goDeferStatement}
+\begin{verbatim}
+fp, err := os.Open(filepath)
+if err != nil {
+    return
+}
+defer fp.Close()
+do_something(fp)
+\end{verbatim}
+\end{figure}
+
+A simple defer statement in D is written $\texttt{scope(exit)}\;e$.
+D can also discriminate between normal and abnormal exits with $\texttt{scope(success)}\;e$ and $\texttt{scope(failure)}\;e$ respectively.
+As in Go, the expression is unevaluated when control passes over the statement.
+When control exits from a block, all the \texttt{scope(exit)} statements are executed, as well as all the \texttt{scope(success)} statements if the block was exited normally, or all the \texttt{scope(failure)} statements, if the block was exited because of an exception.
+D's defer statements are registered at compiletime, rather than at runtime as in Go.
+Nonetheless, the effect is very similar, as the registered expressions will be evaluated in reverse order.
+
+The ability for D to discriminate between normal and abnormal exit is very useful for performing atomic operations.
+For example, Figure~\ref{Dscope} shows a program which performs an operation on a file and logs the result.
+When multiple error-prone operations must be performed together atomically, this technique can save significant development time (CITE that D article).
+
+\begin{figure}
+\caption{D-style defer-statement}
+\label{Dscope}
+
+\begin{verbatim}
+void processFile(string filename) {
+    scope(exit) logger.info("Attempting file... ");
+    auto fp = File(filepath, "r");
+    scope(success) logger.info("done.\n");
+    scope(failure) logger.info("FAILURE:" + filepath + "\n");
+    do_something(fp);
+}
+\end{verbatim}
+
+\end{figure}
+
+Unfortunately, the defer-statements of both languages share with try-finally the same the inability to be abstracted.
+Although patterns of defer-statements are generally smaller than patterns of try-finally, they are nevertheless error-prone and cannot be recommended as a general solution for secure software.
+
+
+%Finally, we would like to note one generalization of defer statements.
+%Weimar and Necula present the concept of compensation stacks as an intriguing solution to resource management problems.
+%Although it was developed from the notion of a ``linear saga'', it may perhaps best be described here as a generalization of Go's defer statement construct where the stack of deferred expressions is first class, including facility for the programmer to construct additional stacks at runtime.
+%However, the authors admit some weaknesses of the approach, and has not undergone thorough testing in production systems, so we will not treat it deeper.
+
+
+\subsection{Purity and Monads}
+\label{subsect:exceptionMonads}
+The lazy, pure functional programming language Haskell takes an interesting approach to exceptions in idiomatic code.
+Although Haskell incorporates unchecked exceptions as a language feature, exceptions and exception handling are not prevalent in Haskell code.
+Since exceptions are impure, any functions that might cause an exception (directly or indirectly) need to be specially marked.
+Throwing an all-purpose impure marking\footnote{e.g. in Haskell, this is the IO monad, commonly described as a ``sin bin''} around everywhere significantly compromises the program architecture.\cite{ReflectionWithoutRemorse}
+Instead, Haskell programs regularly make use of monads, which are a particularly useful class of data type.
+A detailed discussion of monads in Haskell and their applications is beyond the scope of this paper, but we point the interested reader to \cite{awkwardSquad}.
+
+For our purposes, we can simply say that monads are able to use the type system to make and track very fine-grained distinctions concerning computational effects.
+Furthermore, monad values can be easily composed, so large, effectful computations, called ``actions,'' can be easily built from smaller actions, the same way we might build a large procedure by calling several smaller procedures in an imperative language.
+Finally, because Haskell is lazy, functions over monads are able to abstract any pattern of action composition.
+These features actually allow Haskell to simulate any control structure.
+A common task is to directly simulate checked exceptions.
+
+One such monad is the \emph{maybe monad}, on which we will heavily focus here, but note that there are many more exception-like monads available, including the general-purpose \emph{error} monad, which is capable of reporting any additional information required.
+A value of type \texttt{Maybe a} can either be a unit value, \texttt{Nothing}, or a value of type \texttt{a}, wrapped by the \texttt{Just} constructor (e.g. \texttt{Just 5} is of type \texttt{Maybe Int}).
+Since the type \texttt{Maybe a} is distinct from the type \texttt{a}, values of one type cannot be used in a context where the other is expected.
+Instead, we must use case analysis to ``unwrap'' the underlying \texttt{a} value, but this leads us naturally to consider the case where there is no such value!
+Figure~\ref{maybeMonad} shows examples where we define an action (\texttt{divide}), compose it into a larger action (\texttt{calculate}\footnote{The \texttt{calculate} function attempts to compute $\Sigma_{i=^-10}^{10}{1/i}$ with a series of \texttt{divide} actions interspersed with pure additions, which is clearly undefined due to the term $1\over0$.}), and safely unwrap the monad (\texttt{main} or \texttt{main'}), naturally taking into account both the successful and unsuccessful cases.
+These patterns are heavily preferred in Haskell over native exceptions.
+
+\begin{figure}[h]
+\caption{Maybe monad in action}
+\label{maybeMonad}
+\begin{verbatim}
+divide :: Float -> Float -> Maybe Float
+divide _ 0 = Nothing
+divide x y = Just (x / y)
+
+calculate :: Maybe Float
+calculate = foldM (\acc x -> (acc +) <$> divide 1 x) 0 [-10 .. 10]
+
+main = case calculate of
+    Nothing -> putStrLn "Divide by zero error"
+    Just result -> print result
+main' = fromMaybe (putStrLn "Divide by zero error") print calculate
+\end{verbatim}
+\end{figure}
+
+The advantages of this technique are clear if we consider Haskell's monads in relation to monads in other languages\footnote{Monads are an abstract concept appearing everywhere, whether it is realized or not. Although elementry schoolers can perform addition and multiplication, they are not likely to know that they are operating within the ring algebraic structure. Likewise, every \texttt{if (obj != null) f(obj);} is a pattern-based implementation of a monad.}.
+To be concrete, let us consider the null pointer in Java, \texttt{null}.
+The null pointer can be used in any context where an object is expected, even though it cannot satisfy any requests for data or any method calls.
+Under these circumstances, the compiler cannot guarantee that values stored in a variable of class A can actually be used as a value of class A; all non-primitive-type variables are vulnerable to holding a null pointer instead of an instance of A.
+As such, it is not uncommon to obtain a \texttt{NullPointerException} at runtime, which is almost always the result of programmer error rather than system error.
+To avoid this possibility, we need to add code checking some objects against \texttt{null}, but the compiler offers no help in identifying where there is danger.
+
+In contrast, Haskell has no need for null pointers, since we can always use the maybe type.
+Monads such as maybe allow us to distinguish between an object which really is an object versus an ``object or nothing'', which could be an object or a null, and also to conveniently manipulate both.
+Because Haskell is strongly-typed, everywhere a null (a \texttt{Nothing}) might occur can be audited at compiletime, and the programmer forced to consider the often neglected edge-case.
+The use of monads, in this author's direct experience and communications with other programmers, has reduced the incidence of bugs at runtime dramatically and has lead to significantly more reliable programs.
+Indeed, a common phrase in the Haskell community is that ``if it compiles, it works'', which speaks very well of the reliability of Haskell programs, even if it is not strictly true.
+
+
+The downside of monads is that any control structure they make available is simulated, rather than native.
+In particular, while action composition may be efficient enough when right-associated, many monads perform asymptotically worse when left-associated.\cite{ReflectionWithoutRemorse}
+For simple exception-like monads, improper association can lead to the exception being needlessly propagated through every following action when we would prefer simply to short-circuit the entire computation at the point where the problem occurred.
+In more complex monads, such as those incorporating additional effects, improper association can cause asymptotically worse performance.
+Authors of new monads or composition functions must be very careful to consider the performance tradeoffs of their implementation, which can be quite subtle, especially in a lazy language such as Haskell.
+Monads certainly shine in their static semantics, but their dynamic semantics shows little concern for their efficiency, especially in light of the ubiquity of monadic constructs.
+
+
+
+%\begin{verbatim}
+%with :: (Monad m, Resource a) => m r -> (r -> m a) -> m a
+%
+%with $ openFile "greeting.txt" $ \fp ->
+%    hPutStrLn fp "Hello, world!"
+%\end{verbatim}
+
+
+\section{First-class Control}
+\label{sec:FCC}
+
+\subsection{Introduction to First-class Control}
+\label{subsec:intro-to-fcc}
+
+As we have mentioned, first-class control is not a widely-implemented language feature, and so many readers will correspondingly have little or no experience with or intuition for FCC.
+This section gives several short examples of a shift-reset---a particular flavor of FCC---in the programming language Racket, a Scheme dialect.
+Readers already familiar with FCC can skip to the next section.
+If you are following along in a Racket interpreter, then you will need to import the control operators library with \texttt{(require racket/control)}.
+
+A shift-reset system adds two new special forms to the language, \texttt{(reset \textit{expression})} and \texttt{(shift \textit{identifier expression})}.
+In \texttt{shift}, the identifier is bound within the expression, but being able to determine precisely what value is bound is exactly the intuition for FCC we are developing now.
+
+Our first examples below appear to show that \texttt{reset} has no effect on a value passed to it.
+We may as well remove the calls to reset from the examples, and everything would work out the same.
+When there are no calls to \texttt{shift}, indeed \texttt{reset} has no effect on the process.
+
+\begin{verbatim}
+(reset 10)
+  => 10
+(+ 1 (reset 10))
+  => 11
+\end{verbatim}
+
+In our next examples, we add \texttt{shift}, first just inside the \texttt{reset}.
+Again, there seems to be no effect.
+However in the second example, we move the reset out further, so that \texttt{(+ 1 ...)} is inside the \texttt{reset}, but outside the \texttt{shift}.
+Here, it seems like the interpreter has lost track of the \texttt{+ 1} call, so we get 10, not 11.
+Where did it go?
+
+\begin{verbatim}
+(+ 1 (reset (shift k 10)))
+  => 11
+(reset (+ 1 (shift k 10)))
+  => 10
+\end{verbatim}
+
+So far, we have not made use of \texttt{shift}'s identifier, so we will do that now.
+In the first expression, we see that \texttt{k} acts like a function, and that introducing it mysteriously makes up for the missing \texttt{+ 1} operation.
+In the second expression, we see that we can call \texttt{k} multiple times, and that it appears to act like a successor function.
+However, the third example shows that \texttt{k} is bound in a very strange way:
+by changing the \texttt{+ 1} between \texttt{reset} and \texttt{shift} to \texttt{* 2}, we see that \texttt{k} is then bound to a doubling function.
+So, the identifier in \texttt{shift} is bound to a very interesting value, which is something like a function whose definition depends on the program \emph{outside} of the \texttt{shift} form.
+
+\begin{verbatim}
+(reset (+ 1 (shift k (k 10))))
+  => 11
+(reset (+ 1 (shift k (k (k 10)))))
+  => 12
+(reset (* 2 (shift k (k (k 10)))))
+  => 40
+\end{verbatim}
+
+The next examples develop systematically.
+They consist of a core \texttt{(shift k 100)} expression, which should create some mysterious function-like object, but ignore it.
+There are also calls to add one, add ten, and a reset form.
+We move the reset form progressively inwards, which has the effect of including more operations in the value of \texttt{k}.
+We see then, that the effect of this function-like object is determined not by anything outside the \texttt{shift} form, but my just what is between the \texttt{shift} and \texttt{reset}.
+Although we will not show it, it turns out that the value of \texttt{k} depends on what is between the \texttt{shift} that creates it and only the nearest enclosing \texttt{reset}; additional \texttt{reset} forms make no difference.
+
+\begin{verbatim}
+(reset (+ 1 (+ 10 (shift k 100))))
+  => 100
+(+ 1 (reset (+ 10 (shift k 100))))
+  => 110
+(+ 1 (+ 10 (reset (shift k 100))))
+  => 111
+\end{verbatim}
+
+However, note that when we say ``between'' the shift and nearest reset, we do not the program text between the special forms.
+Instead, we mean the continuation is defined by the dynamic process that evolved between the time when \texttt{reset} was encountered and when \texttt{shift} was encountered during evaluation.
+This is an essential feature of FCC which directly leads to its expressive power.
+The next examples split \texttt{shift} and \texttt{reset} into separate parts of the program.
+
+\begin{verbatim}
+(define (push-inc-continuation thunk)
+    (reset + 1 (thunk)))
+(define (with-last-continuation thunk)
+    (shift k (thunk k)))
+
+(push-inc-continuation (lambda ()
+    (with-last-continuation (lambda (k) 10))))
+  => 10
+(push-inc-continuation (lambda ()
+    (with-last-continuation (lambda (k) (k 10)))))
+  => 11
+\end{verbatim}
+
+Before moving on to a much less trivial example, we would like to briefly examine an informal operational semantics for evaluating expressions under FCC.
+As we evaluate an expression, we also maintain a control stack.
+The control stack is a stack mostly of contexts, each of which is an expression with exactly one subexpression replaced with a hole, written $\square$.
+During evaluation, complex expressions under consideration are recursively split into two parts: a context and a simpler sub-expression.
+The context is pushed onto the stack, and evaluation continues with the subexpression.
+When we reach a suitably simple expression, we reduce it to a value, then pop the topmost context.
+The hole in this context is replaced with the value, forming an expression on which evaluation continues.
+When we have a value but no remaining contexts in the stack, evaluation is complete.
+A small example is given in Figure~\ref{fig:context-stack-addition} for concreteness.
+
+\begin{figure}
+\caption{Context-Stack Addition}
+\label{fig:context-stack-addition}
+\begin{tabular}{ll}
+\textbf{Current Subexpression} & \textbf{Context Stack} \\
+\texttt{(+ 1 (* 2 3))} & \\
+\texttt{(* 2 3)} & \texttt{(+ 1 $\square$)} \\
+\texttt{(+ 1 6)} & \\
+\texttt{ => 7} & \\
+\end{tabular}
+\end{figure}
+
+To extend this language with first-class control, we add a stack mark, written $\#$, which may also be pushed to the stack.
+Whenever we have a value, but a mark is on top of the stack, we pop the topmost marks and continue from there.
+There are then two special forms:
+the \texttt{reset} form pushed a stack mark, and the \texttt{shift} form aborts and reifies a portion of the control stack, then binds the result in the body and continues evaluation.
+The portion of the stack captured extends from the top of the stack up to (but not including) the nearest stack mark.
+If there is no such mark, then the entire stack is captured.
+During reification, we form an expression by iteratively substituting contexts from this captured stack segment into the hole of the next context down, but replace the hole in the bottommost context with a fresh variable, $x$.
+When this is done, we wrap the resulting expression in a \texttt{reset} form and also a lambda which binds $x$, thus obtaining the reified continuation.
+So for example, if the stack looks like [\texttt{(+ 1 $\square$)}, \texttt{(+ 2 $\square$)}, $\#$, \texttt{(+ 3 $\square$)}], then evaluation of a shift form would leave [$\#$, \texttt{(+ 3 $\square$)}] on the stack, and the captured continuation would be \texttt{(lambda (hole) (reset (+ 1 (+ 2 hole))))}.
+
+As an example, Figure~\ref{fig:simple-fcc-reduction} evaluates \texttt{(reset (+ 1 (shift k (k 10))))} to normal form.
+In the first step, we encounter a reset, so we push a stack mark.
+In the second, we see a primitive operator applied to a number and a complex expression, so we push a context and move to the complex expression.
+In the third step, we encounter a shift, so we create a lambda form by popping the topmost section of stack.
+At that point, we essentially have a standard lambda calculus term left, so evaluation proceeds without note.
+That the captured continuation includes a reset form is not essential to first-class control in general, but it is part of the definition of the shift-reset system.
+
+\begin{figure}
+\caption{Simple FCC Reduction}
+\label{fig:simple-fcc-reduction}
+\begin{tabular}{ll}
+\textbf{Current Subexpression} & \textbf{Context Stack} \\
+\texttt{(reset (+ 1 (shift k (k 10))))} & \\
+\texttt{(+ 1 (shift k (k 10)))} & $\#$ \\
+\texttt{(shift k (k 10))} & \texttt{(+ 1 $\square$)}, $\#$ \\
+\texttt{(($\lambda$ (hole) (reset (+ 1 hole))) 10)} & $\#$ \\
+\texttt{(reset (+ 1 10))} & $\#$ \\
+\texttt{(+ 1 10)} & $\#$, $\#$ \\
+\texttt{ => 11} \\
+\end{tabular}
+\end{figure}
+
+
+We will now examine a more interesting example, which implements a loop with early-exit.
+First, recall the definition of \texttt{foldl}, which reduces a list from left-to-right according to the passed function.
+Two example uses of \texttt{foldl} are given as well.
+
+\begin{verbatim}
+;; loop over a list, accumulate a value
+(define (foldl f xs acc)
+    (if (= (length xs) 0)
+        acc
+        (foldl f (cdr xs) (f acc (car xs)))))
+
+;; foldl can be used like this:
+(define (sum numbers) (foldl + numbers 0))
+(define (product numbers) (foldl * numbers 1))
+\end{verbatim}
+
+We can very cleanly define a function that returns true only when every element in a list satisfies some predicate.
+However, doing so can be wildly inefficient, because \texttt{foldl} always consumes every element in the list.
+
+\begin{verbatim}
+(define (slow-all predicate items)
+  (define (test x acc)
+    (if (predicate x)
+        acc
+        false))
+  (foldl test items true))
+  
+;; we already know the answer by the second element
+;; but foldl will just keep testing all the remaining numbers
+(slow-all (lambda (x) (> x 0)) '(1 -5 2 3 ...))
+\end{verbatim}
+
+Instead, we would like is to perform early-exit.
+We can do this using shift-reset, and even re-use our old \texttt{foldl} function.
+Here, \texttt{foldl/ee} wraps the call to \texttt{foldl} in a \texttt{reset} form, but there is no \texttt{shift} form immediately present.
+Instead, our definition of \texttt{all} will arrange for \texttt{break} to be called if we should find an item that does not satisfy the predicate.
+This implementation of \texttt{all} will not check any further items once a counter-example has been found.
+Figure~\ref{fig:foldl/ee-reduction} shows an outline of the reduction steps during evaluation.
+Alternately, the reader may confirm this with a Racket debugger.
+
+\begin{verbatim}
+(define (foldl/ee f xs acc)
+  (reset (foldl f xs acc)))
+(define (break ans) (shift k ans))
+
+(define (all predicate items)
+  (define (test x acc)
+    (if (predicate x)
+        acc
+        (break false)))
+  (foldl/ee test items true))
+\end{verbatim}
+
+\begin{figure}
+\caption{foldl/ee Reduction Sketch}
+\label{fig:foldl/ee-reduction}
+\begin{tabular}{ll}
+\textbf{Current Subexpression} & \textbf{Context Stack} \\
+\texttt{(all ($\lambda$ (x) (> x 0)) '(0 1))} & \\
+\texttt{(foldl/ee test '(0 1) true)} & \\
+\texttt{(reset (foldl test '(0 1) true))} & \\
+\texttt{(foldl test '(0 1) true)} & $\#$ \\
+$\!\!\!\!\!$
+\begin{tabular}{l}
+	\texttt{(foldl test '(1) } \\
+	$\;\;\;\;$\texttt{(test true (car '(0 1))))} \\
+\end{tabular}
+  & $\#$ \\
+\texttt{(test true 0)} & \texttt{(foldl test '(1) $\square$)}, $\#$ \\
+$\!\!\!\!\!$
+\begin{tabular}{l}
+	\texttt{(if (($\lambda$ (x) (> x 0)) 0)} \\
+	$\;\;\;\;$\texttt{true} \\
+	$\;\;\;\;$\texttt{(break false))} \\
+\end{tabular}
+	& \texttt{(foldl test '(1) $\square$)}, $\#$ \\
+\texttt{(($\lambda$ (x) (> x 0)) 0)}
+& $\!\!\!$\begin{tabular}{l}
+	\texttt{(if $\square$ true (break false))}, \\
+	$\;\;\;\;$ \texttt{(foldl test '(1) $\square$)}, $\#$ \\
+\end{tabular} \\
+\texttt{(> 0 0)}
+& $\!\!\!$\begin{tabular}{l}
+	\texttt{(if $\square$ true (break false))}, \\
+	$\;\;\;\;$ \texttt{(foldl test '(1) $\square$)}, $\#$ \\
+\end{tabular} \\
+\texttt{(if false true (break false))} & \texttt{(foldl test '(1) $\square$)}, $\#$ \\
+\texttt{(break false)} & \texttt{(foldl test '(1) $\square$)}, $\#$ \\
+\texttt{(shift k false)} & \texttt{(foldl test '(1) $\square$)}, $\#$ \\
+\texttt{false} & $\#$ \\
+\texttt{ => false} \\
+\end{tabular}
+\end{figure}
+
+Although our purpose in this section was only to build some intuition, the reader may now have several questions regarding FCC.
+In particular, shift-reset does not lend itself well to modularity, nor have we developed a significant example demonstrating the power of FCC beyond exceptions.
+The FCC introduced here was particularly simple flavor, though it has seen implementation in a production language.
+In the following sections, we will examine several flavors of FCC in more depth.
+Once we have developed our system of FCC, then we will return to more significant examples of use.
+
+
+\subsection{Undelimited Continuations}
+\label{undelimControl}
+
+We earlier defined a continuation as the stack of computations that we will need to perform after simplifying a subexpression.
+In fact, this stack in its entirety is called an \emph{undelimited continuation}.
+In contrast, a \emph{delimited} continuation, which we will examine next, is only a portion of the undelimited continuation.
+However, undelimited continuations cannot alone implement arbitrary control structures.
+Instead, a lambda calculus must also be extended with mutable state \cite{Filinski94}, though this is admittedly not a barrier in production languages, even those which already include exceptions \cite{GreatEscape}.
+
+Though powerful, undelimited continuations have been found to be a poor choice in comparison with delimited continuations \cite{MFDC}\cite{continuationsInProcObjs}\cite{HandlingControl}\cite{Sitaram90}.
+Understanding undelimited continuations is only necessary so that we can avoid the flaws in their design, and to set the stage for what follows.
+We will therefore end this section by summarizing a few of the arguments against undelimited control most relevant to our purpose.
+
+Note that any subprogram with the ability to manipulate undelimited continuations can trivially take total control over and manipulate the entirety of the remaining process\footnote{In fact, a buffer overrun attack that leads to arbitrary code execution can be seen as a form of \texttt{call/cc}.}.
+This is in fact the definition of undelimited control, but it is also a prescription for arbitrary code injection.
+Undelimited continuations are thus a very easy pathway to hijack a program, whether by accident or malicious intent.
+As such, they cannot serve as a basis for secure or reliable programming systems.
+
+Furthermore, although undelimited continuations are capable of simulating arbitrary control flows, the process is difficult and subtle.
+In general, such simulation requires whole program transformation \cite{Filinski94}, and as such is really only of interest to compiler writers.
+Indeed, as far as the user-level language is concerned, undelimited continuations are not able to fully abstract control flow \cite{Sitaram90}.
+
+More generally, it is important to note that delimited continuations are often called ``composable'' to distinguish them from undelimited continuations, which are not directly composable.
+Non-composable operations are expensive to maintain, when they can be maintained at all.
+From a software engineering perspective then, we must avoid undelimited control.
+
+\subsection{Delimited Continuations}
+\label{delimControl}
+
+One difficulty of describing FCC is that there are so many different variants in the literature.
+We will consider here three broad groups of delimited control operators.
+In the following, we will often make reference to academic literature;
+lest the reader think we have abandoned our focus on production programming languages, note that all of these operators have been implemented in Racket \cite{RacketReference}. 
+(TODO how much are these implemented in SCheme and ML?)
+In fact, every delimited control operator in Racket is either presented here directly, or else can be easily simulated\footnote{TODO: I should find out if they are in fact simulated}.
+
+In what follows, we will see that Racket implements a veritable zoo of control operators.
+There are of course additional delimited control operators available in the literature, often with unique features of questionable utility.
+It would be preferable of course to agree on only a few operators, and this is perhaps the largest single issue with Racket's system of control: there is no unifying principle motivating the inclusion or exclusion of these operators.
+
+\subsubsection{$\pmFpm$}
+
+The form of delimited control introduced in \ref{subsec:intro-to-fcc} is called \textit{shift-reset}, and is distinguished by the fact that the reified continuation re-installs a stack mark, but the abort does \emph{not} remove the delimiting stack mark.
+Another form, called \emph{prompt-application}, is defined in \cite{PromptApplication} which is the same system, except that the reified continuation does \emph{not} re-install the stack mark\footnote{In \cite{PromptApplication}, what we call stack mark is called a ``prompt.''}.
+
+In fact, prompt-application was the first of four variants which differ only in whether the continuation-capture operator would remove the stack mark on abort and whether a reified continuation would re-install it.
+After \cite{MFDC}, we will call the collection of these systems $\pmFpm$.
+The terminology derives from \cite{PromptApplication}, which wrote the capture operator as $\mathcal{F}$.
+In each system, the operator to install a stack mark---called \texttt{reset} in \ref{subsec:intro-to-fcc} and written $\#$ in \cite{PromptApplication}---is the same.
+The systems differ in the behavior of there control operator; these differences are represented by the choices between plus and minus:
+\begin{itemize}
+\item $^+\mathcal{F}^-$ is the delimited $\mathcal{F}$ operator in \cite{PromptApplication}. It leaves the stack mark behind, and does not include it in the continuation.
+\item $^+\mathcal{F}^+$ is called \emph{shift} from \cite{AbstractingControl}, an in our Sec.~\ref{subsec:intro-to-fcc}. It leaves the stack mark behind, but includes it in the continuation.
+
+\item $^-\mathcal{F}^+$ is similar to the \emph{spawn} operator in \cite{ContinuationsAndConcurrency}, though we will see an exact implementation in a moment. It removes the stack mark, but includes it in the continuation.
+\item $^-\mathcal{F}^-$ is similar to \emph{cupto} from \cite{Gunter:1995}; we will again see an exact implementation. It removes the stack mark, and also includes it in the continuation.
+\end{itemize}
+A more in-depth discussion of the properties of this system is available in \cite{MFDC}.
+
+\subsubsection{cupto}
+
+So far, we have considered control operators that can capture and abort only up to the nearest stack mark.
+In fact, systems based only on these operators suffer from a lack of composability.
+Consider the implementation of \texttt{foldl/ee} implemented in Sec.~\ref{subsec:intro-to-fcc}; if we were to nest calls to \texttt{foldl/ee}, the inner call would be unable to break out of the outer call.
+In major imperative languages, by contrast, it is simple to break out from nested loops.
+The depth of the situation we face here is most readily seen if we consider the analogy from \cite{ContinuationsAndConcurrency}: ``It is as if we were programming in a block-structured language that restricts us to one variable name.''
+
+To create fully abstract control structures, we need a supply of distinct stack marks, and some way to obtain a fresh mark.
+Our control operators will then take an additional parameter determining which mark they work with.
+Just such a system is developed in \cite{Gunter:1995}.
+Importantly, it introduces the primitive \textbf{newPrompt}, which obtains a fresh stack mark.
+Instead of \texttt{reset}, we use $\textbf{set }p\textbf{ in }e$, where $p$ should evaluate to a stack mark, to push $p$ before evaluating $e$.
+Instead of the $\pmFpm$ operators, we use a $\textbf{cupto }p\textbf{ as }k\textbf{ in }e$ operator, which captures and aborts up to the nearest $p$ mark (bypassing other marks), and binds $k$ to the captured continuation in $e$.
+With \textbf{cupto}, the stack mark is neither left behind, nor is it reinstalled, as in $^-\mathcal{F}^-$.
+However, the authors do not express a strong opinion on the flavors presented by $\pmFpm$, and in fact note that it is easy to simulate other flavors starting from $^-\mathcal{F}^-$.
+
+\subsubsection{fcontrol}
+
+In the operators so far, the control operator has not only been responsible for effecting continuation capture, but has also specified the handler to which the reified continuation is passed.
+In \cite{HandlingControl}, Sitaram introduced the possibility of specifying the handler with the delimiter.
+
+
+In fact, fcontrol was developed as an generalization of throw and catch in Lisp.
+
+\subsubsection{Separate Abort and Capture}
+
+Until now, our control operators were responsible for at once aborting a continuation and capturing it.
+In fact, it is possible to split this operator into two parts: one which only aborts, and one which only captures.
+it turns out that it is quite easily for either technique to simulate the other.\cite{MFDC}
+It just so happens that abort-with-capture dominates the FCC literature, but this is not a detriment to expressivity.
+Exception systems, by contrast, include only an abort operator, so in our system we have chosen to separate the two operations.
+FIXME Nonetheless, in another work, another formulation of the system we develop here is actually better expressed using simultaneous capture+abort.
+
+
+\subsubsection{Analysis}
+
+The reader might surely wonder at this point if there are further variants.
+Indeed, there are, but these are either easily simulated by the above systems, or else are so unique to be of questionable utility.
+Given the possibilities we have discussed, we see several choices:
+\begin{enumerate}
+\item whether to remove the delimiting stack mark on abort,
+\item whether to include the stack mark in the captured continuation,
+\item whether to provide a supply of fresh stack marks, or else allow only a single mark,
+\item whether to specify the handler with the control operator or with the delimiting operator, and
+\item whether to perform abort and capture together or separately.
+\end{enumerate}
+While these are orthogonal, certain choices are more expressive than others.
+As already mentioned, choosing to remove the delimiting mark but not include it in the captured continuation allows simple simulation of the other three possibilities in this space.
+Further, providing a supply of fresh stack marks allows us to use multiple control structures at once without being concerned with adverse interactions.
+The choices (4) and (5) have no clear answer, so we note only that exceptions place the handler near the delimiter, and they trivially\footnote{since exception systems do not perform capture at all} perform abort seperately from capture.
+%Therefore, we expect that a system of control which must unify with exceptions will specify handlers during delimiting rather than during capture.
+
+
+
+------------
+
+TODO
+
+Since exceptions cause a crash when they are not delimited, we should choose the same when a capture is not delimited.
+
+Single-mark control can implement finally behavior, but many-mark cannot.
+
+There are expressive type systems for first-class control.
+There may even be one which can statically rule out a failure to delimit.
+
+------------
+
+What happens when a matching stack mark is not found during capture?
+Either we capture the whole stack, or we crash.
+The choice to capture the whole stack is problematic because a capture will sometimes be delimited and sometimes undelimited, depending on the context.
+This is highly unintuitive behavior, and not likely useful.
+More likely, a programmer has made an error, and we should stop execution immediately, following the ``catch errors early'' principle.
+
+An attempt to capture a delimited continuation leads to a program crash when a matching stack mark cannot be found on the control stack.
+Type systems that can statically rule out these crashes are known (CITE really? there's got to be a citation from mfdc that says so), but these systems are complex.
+Therefore, the type system for languages incorporating delimited continuations is often left unsound in this respect.
+This is the tactic used in Racket.
+
+When we have a fixed prompt, we can easily trap all attempts to abort past a certain point.
+With first-order fcontrol, we can implement finally.
+However, when we have dynamically-generated prompts, all a subroutine has to do is abort to a prompt that is not caught by a finalizer of the same prompt.
+The introduction of dynamic prompts then allows for composable nesting of control constructs, but requires an additional mechanism to implement finalizers.
+In either case, there is no ``initializer'' system available to run whenever control enters a portion of code.
+
+
+
+\subsection{Dynamic Wind}
+\label{dynamic-wind}
+
+Dynamic-wind is another simple concept, which is broadly a generalization of try-finally.
+Dynamic-wind is a form which takes three blocks\footnote{Technically, it takes three thunks, but there's really no good reason to introduce the boilerplate \texttt{(lambda () ...)} all over the place. So, we will speak as if the arguments were passed unevaluated, as if to a special form.} of code: a before-, body-, and after-block.
+Control then attempts to enter the body-block, but whenever the body is entered, whether initially or because it is placed back onto the stack, the before-block is executed first.
+Furthermore, no matter how control exits the body, the after-block will be evaluated.
+
+TODO where multiple prompts alone cannot guarantee setup or cleanup when a dynamic extent is entered/exited, the addition of dynamic-wind gives us this capability
+
+It should be clear then, that try-finally is a limit case of dynamic-wind, where the before-block is empty.
+Conversely, dynamic-wind generalized try-finally by not only allowing code to be registered for execution on exit, but also on entrance.
+Try-finally is sufficient to manage cleanup of resources in the presence of non-local exit, but can manage acquisition of resources under only local entry.
+Dynamic-wind allows the programmer to ensure that both setup and cleanup code are properly executed even under non-local control flow such as that introduced by FCC.
+Since the two mechanisms are so similar, they share essentially the same advantages and disadvantages.
+In any case, we will not repeat our analysis here.
+
+
+
+
+\section{Review}
+\label{sec:review}
+
+%Each system discussed above has severe problems when used as the sole method of resource management. Even combining all these techniques into a single language is insufficient to overcome the problem of abstracting control flow without resorting to explicit continuation-passing.
+
+%Abstraction is limited in all of these schemes. RAII and with/using are only able to abstract patterns of execute-around. Try/finally and scope statements are not capable of any abstraction, short of manually passing continuations.
+
+%the most general techniques can be quite concise
+%stack markers are common (though not in gc'd RAII, and Haskell uses non-tail recursion)
+%strict evaluation stands in the way of abstraction
+
+
+RAII: abstractible, unsafe or non-deterministic, verbose, directly applies only to physical resources
+try-finally: non-abstractible, determistic, applies generally
+with/using: abstractible, deterministic, verbose, directly applies only to physical resources
+scope statements: non-abstractible, concise, deterministic, applies generally
+monads: abstractible, deterministic, concise, poor performance characteristics, applies generally
+
+the question of number of use-cases is difficult.
+
+although user-implemented monads offer poor performance characteristics, the type system is very good at checking exceptions in a non-annoying way.
+before control exits from blocks, some code must be executed: usually implemented by marking the stack.
+allow for transactions by distinguishing between normal/abnormal exit.
+
+
+
+from exceptions: determinism, mark the stack with handlers, mark the stack with finalizers, abstraction
+
+from fcc: reify/replace parts of the stack, mark stack fragments with initializers, abstraction
+
+use a rich type system to check exception safety
+
+find a place for this: it is commonly claimed that exceptions can be implemented with continuations + mutable state. Unfortunately, this strategy is not very pure
+
+
+Good features found:
+  1) stack-allocated memory can be cleaned deterministically,
+  2) directly (i.e. inline) install deterministic handlers (e.g. catch-clauses),
+  3) reuse setup/cleanup pairs (well, reuse more generally, but...)
+  4) straightforward or (better) automatic auditing for exception safety,
+  5) cleanup must be executed no matter how control exits,
+  6) corollary: setup must be executed no matter how control enters,
+  7) discriminate between normal and abnormal exit
+Features to avoid:
+  1) manual management of heap-alloc'd memory,
+  2) destruction/cleanup tied to garbage collector,
+  3) boilerplate per method of setup/cleanup,
+  4) manual translation to continuation-passing style,
+  5) indiscriminate laziness,
+  6) codifying any specific patterns (other patterns are always left un-codified, but if we let the user codify patterns himself, no pattern need be codified),
+Initial goals were to promote efficient code re-use in favor of pattern-based programming.
+We won't worry about syntactic abstraction, as that's independent and has several possible solutions, though our demonstration langauge does have it.
+
+
+MEMOS:
+\begin{itemize}
+\item `syntactic theory of fcc' could not give higher praise to fcc as a implementation technique
+\end{itemize}
+
+
+
+\part{Thesis}
+
+
+\section{Overview}
+\label{system-overview}
+
+\subsection{Introduction}
+
+The system we have developed is inspired by three exiting control concepts: the system $\pm\mathcal{F}\pm$ from \cite{MFDC}, dynamic-wind from Scheme, and the ability to discriminate normal and abnormal exit from D.
+Our system was developed independently of the requirements summarized in \S\ref{sec:review}, but we will show that it does meet those standards.
+This sort of demonstration is interesting because it shows that the power of the system extends beyond its direct influences.
+
+TODO I'm removing type system stuff, so this may need a re-write to flow properly
+
+We begin our work with a call-by-value lambda calculus.
+Finally, with call-by-value, we can easily control the order of evaluation, esp. to obtain determinism.
+To aid comprehension by humans, we also added expression sequencing, denoted by the semicolon infix.
+The most basic form is $e; e$, but our extensions will include other productions involving semicolon.
+When semicolon separates two nodes of the syntax, we assume they are right-associated wherever explicit grouping is not given.
+
+We give a brief review of the grammar in Figure~\ref{fig:startGrammar}.
+We will not review here the dynamic semantics (which will be fully specified in \S\ref{sec:evaluation}) or the static semantics (which is intuitively clear, though formally large; we point the interested reader to CITE practical higher-rank type inference).
+
+As in most discussions of formal semantics, we will be working simultaneously with syntax, semantics and metasyntax. To be unambiguous, we will typeset each level differently. Metasyntax will be in \textit{italics}, semantic objects will be written in \textbf{boldface}, and syntax will be written either in \textsf{sans-serif} for keywords or in \texttt{typewriter} everywhere else.
+
+\begin{figure}[h]
+\caption{Base Grammar}
+\label{fig:startGrammar}
+
+\begin{tabular}{llclll}
+Values & $v$ & ::= & $\lambda x.e$ && Term Abstraction\\
+Expressions & $e$ & ::= & $v$ && \\
+& & $|$ & $x$ && Term variable \\
+& & $|$ & $e\;e$ && Term application \\
+& & $|$ & $e;e$ && Sequencing \\
+\end{tabular}
+\end{figure}
+
+As we stated earlier, FCC is usually considered in systems using a control stack during evaluation.
+We will also use a control stack in our definition of a small-step semantics.
+We will adopt an upward-growing convention.
+Figure~\ref{fig:controlStack} defines the basic structure of a control stack suitable for our base calculus.
+We will also wish to speak about when evaluation proceeds above some point on the control stack.
+FIXME: dynamic extent should be defined in the section on dynamic wind.
+In such cases, we will say that evaluation is within that point's ``dynamic extent,'' or ``extent'' for short.
+When the stack shrinks beyond some point, we say that control has exited that point's dynamic extent.
+
+\begin{figure}[h!]
+\caption{Control Stack}
+\label{fig:controlStack}
+\begin{tabular}{llcll}
+Continuations & $K$ & ::= & $\blacksquare$ & Empty continuation \\
+& & $|$ & $k:K$ & Continuation step \\
+Contexts & $k$ & ::= & $\square\;e$\\
+& & $|$ & $v\;\square$ \\
+& & $|$ & $\square;e$ \\
+\end{tabular}
+\end{figure}
+
+\subsection{Stack Marking}
+
+The base calculus only contains continuations which are stacks of contexts.
+To this, we will add five \emph{stack marks}, which are simply non-context elements which may be placed on the control stack.
+The first we will consider we call \emph{delimiters} and are very similar to the pushed prompts of \cite{MFDC}.
+Delimiters consist of an identifier, which we call a \emph{cue}, along with a function, called the \emph{handler}.
+The grammar is defined in Figure~\ref{fig:addCues}.
+Marking the stack with a delimiter associates that use of the cue with the handler, and each delimiter may have different combinations of cue and handler.
+The user can create new cues at runtime with the $\newhandler$ expression.
+This is our only way of delimiting abort and capture, and by having only this one, we greatly simplify reasoning about the interactions between different control flow constructs.
+
+A cue is a primitive concept which need only obey the loose property:
+given $c$, its successor $succ(c)$ is defined, and distinct from all of its direct and indirect predecessors\footnote{In fact, a cue may be re-used after it is no longer reachable, but this would require garbage collection, which we will not define here.}.
+That is, each new cue is unique.
+The natural numbers are the obvious structure that satisfies these properties, but implementors are free to decide on an alternate structure.
+For example, when implementing a distributed system, assuring synchronous access to a global counter is likely too expensive.
+
+We also add special kind of stack mark, which we call \emph{boundary}, and write it $\blacksquare$.
+FIXME racket calls this a ``continuation barrier'', and I may as well stick with the terminology.
+Note that this use of the $\blacksquare$ symbol is different from its use representing an empty control stack, though they do share a common property.
+Just as non-local control cannot capture or abort past the end of the control stack, non-local control cannot capture or abort past a boundary either.
+For this reason, we will speak of boundaries as marking the boundary between a sub-interpreter and a main interpreter.
+We will in a moment see control guards, which are meant to execute before/after changes in control flow.
+Boundaries are designed to prevent non-local control flow from inadvertently bypassing these guards.
+In the interests of simplicity, we have elected to simply terminate the program when control attempts to capture or abort past a boundary -- escape from within a sub-interpreter .
+
+\begin{figure}[h!]
+\caption{Stack Marks}
+\label{fig:addCues}
+
+\begin{tabular}{llcll}
+Values & $v$ & ::= & $\ldots$ \\
+& & $|$ & $c$ & Cue identifier \\
+Expressions & $e$ & ::= & $\ldots$ \\
+& & $|$ & $\newhandler$ \\
+Continuations & $K$ & ::= & $\ldots$ \\
+& & $|$ & $\textbf{cue}\;c\;v:K$ & Cue \\
+& & $|$ & $\blacksquare:K$ & Boundary \\
+\end{tabular}
+\end{figure}
+
+We should note an interesting possible feature of boundaries, which is to attach an alternate expression to a boundary.
+When control attempts to escape from a sub-interpreter bounded by one of these boundaries, the stack is truncated through the boundary and evaluation resumes with alternate expression.
+For example, a language with primitive $\mathbf{eval}$ might insert a boundary before interpreting the passed expression such that an attempt to escape from the sub-interpreter instead raises a predictable exception in the main interpreter.
+This strategy is a necessary part of sandboxing under FCC; with it we can ensure that sandboxed code cannot take control over trusted code.\cite{addDelimControlProduction}
+Though important, this feature is a straightforward extension and tangential to our purposes, so we will only consider boundaries without alternatives.
+
+\subsection{Control Operators}
+
+We now move on to discussing new operators for manipulating the stack using cues.
+Our operators are directly inspired by \cite{MFDC} and correspond closely to theirs.
+Mostly, we simply extend their operators to work with handlers, but we do refactor one of their operators into two of ours as we will soon see.
+The syntax of these operators is given in Figure~\ref{fig:addControl}.
+
+\begin{figure}[h!]
+\caption{Non-local Control Operators}
+\label{fig:addControl}
+
+\begin{tabular}{llcll}
+Values & $v$ & ::= & $\ldots$ \\
+& & $|$ & $K$ & First-class continuation \\
+Expressions & $e$ & ::= & $\ldots$ \\
+& & $|$ & $\handle{e}{e}{e}$ \\
+& & $|$ & $\abort{e}{e}$ \\
+& & $|$ & $\capture{e}{e}$ \\
+& & $|$ & $\pushSubcont{e}{e}$ \\
+Contexts & k & ::= & $\ldots$ \\
+& & $|$ & $\handle{\square}{e}{e}$ \\
+& & $|$ & $\handle{v}{\square}{e}$ \\
+& & $|$ & $\abort{\square}{e}$ \\
+& & $|$ & $\abort{v}{\square}$ \\
+& & $|$ & $\capture{\square}{e}$ \\
+& & $|$ & $\capture{v}{\square}$ \\
+& & $|$ & $\pushSubcont{\square}{e}$ \\
+\end{tabular}
+\end{figure}
+
+Perhaps the simplest operator is $\handle{cue}{handler}{body}$.
+This corresponds to an extension of $\textsf{pushPrompt}$ to take an additional handler argument.
+In brief, $\textsf{handle}$ is the mechanism by which we associate a cue with a handler and place a delimiter on the stack.
+
+Next we have $\pushSubcont{cont}{body}$, which corresponds exactly to $\textsf{pushSubcont}$ from \cite{MFDC}.
+The $\textsf{restore}$ operator appends the passed (sub)continuation before evaluating the body.
+Thus, once the body has reduced to a value, it will be further operated on by the new continuation before the original continuation performs its transformations.
+The semantics of this operator will roughly follow those of function application.
+In fact, the author had debated overloading the existing application syntax against introducing a new operator.
+In the end, it was considered that an explicit operator aids comprehension by reminding the reader of the interesting effects.
+
+Next, we examine $\abort{cue}{value}$, which removes a portion of a control stack up through a delimiter, then applies its value to that delimiter's handler.
+This shares much in common with $\textsf{throw}$ operators in languages with exceptions.
+Just like $\textsf{throw}$, we supply a value to send to a handler higher up in the stack, and this construct will be essential in implementing traditional exception handling later on.
+The English grammar should be slightly different, however, so whereas we would say ``throw a value,'' we will instead say ``abort \emph{with} a value.''
+
+Finally, we have $\capture{cue}{thunk}$, which captures and reifies a portion of the control stack up to a delimiter.
+The reified continuation is then passed, along with the delimiter's handler, to the thunk, which should be a function accepting just those arguments.
+Also passing the handler along allows the thunk to control whether the cue should be re-installed should the need arise\footnote{Of course, we already have the $cue$ available, so reconstructing the precise stack mark which delimited the capture is simply a matter of re-associating the cue with the found handler.}.
+An important relationship between $\textsf{capture}$ and $\textsf{abort}$ is that if the operators are given the same cue in the same control context, they would respectively capture and abort precisely the same portion of the control stack.
+
+The two operators $\textsf{abort}$ and $\textsf{capture}$ together correspond to the two ``halves'' of the $\textsf{withSubcont}$ operator in \cite{MFDC}.
+In fact, those authors mention that $\textsf{withSubcont}$ could just as well be factored into two -- as we have done here -- without affecting the expressivity of their system.
+Their decision to combine capture and reify functionality with abort is appropriate for their purposes, but because our system has a richer system of stack marks, splitting up the two operations will be the simpler route.
+
+\subsection{Control-flow Guards}
+
+Finally we add three more operators, $\textsf{onWind}$, $\textsf{onUnwind}$, and $\textsf{onAbort}$, which we collectively call control-flow guards, or control guards for short.
+Each of these operators introduces a corresponding stack mark, which we call a \emph{control guard}, before evaluating their body.
+In turn, the control guards ensure that the passed expressions are always appropriately evaluated when control flow enters or exits a section of the stack.
+
+There is a strong correspondence of $\textsf{onUnwind}$ and $\textsf{onAbort}$ with D's scope statements $\textsf{scope(success)}$ and $\textsf{scope(success)}$.
+On the other hand, there is also a strong correspondence of $\textsf{onWind}$ with dynamic-wind's ability to register a thunk before evaluating the body as well as between dynamic-wind's after-thunk registration and a combination of $\textsf{onUnwind}$ and $\textsf{onAbort}$.
+As such, we can think of these three operators in two ways.
+They are an extension of D's scope statements to handle environments where control can re-enter an expression.
+They also split dynamic-wind into its components and allows it to discriminate between normal and abnormal -- non-local -- exit.
+The syntax is given in Figure~\ref{fig:addGuards}.
+
+With these guard expressions, we see the other syntax productions using semicolon.
+As an example of how semicolon groups expressions, consider the term $e_1;\;(\textsf{onAbort}\;e_g;\;e_2;\;e_3);\;e_4$.
+Here, $e_1$ is clearly not guarded by $e_g$, but \emph{both} $e_2$ and $e_3$ are.
+Finally, $e_4$ is not guarded.
+In general, unless explicit grouping is given, guard expressions protect all the following expressions in a semicolon sequence.
+This is very similar to -- in fact inspired by -- the syntax of D's scope statements, which we believe aids comprehension.
+
+\begin{figure}[h!]
+\caption{Stack Guards}
+\label{fig:addGuards}
+
+\begin{tabular}{llcll}
+Expressions & $e$ & ::= & $\ldots$ \\
+& & $|$ & $\onWind{e}{e}$ \\
+& & $|$ & $\onUnwind{e}{e}$ \\
+& & $|$ & $\onAbort{e}{e}$ \\
+Continuations & $K$ & ::= & $\ldots$ \\
+& & $|$ & $\textbf{onWind}\;e:K$ \\
+& & $|$ & $\textbf{onUnwind}\;e:K$ \\
+& & $|$ & $\textbf{onAbort}\;e:K$ \\
+\end{tabular}
+\end{figure}
+
+
+
+
+
+\section{Dynamic Semantics}
+\label{sec:evaluation}
+
+Here we develop a small-step dynamic semantics using a transition system.
+We will first need to develop a few additional concepts.
+
+\subsection{Supporting Definitions}
+
+To evaluate function application, we will use hygienic substitutions, written $e[x\backslash e']$.
+For abstractions, cues and non-value expressions, this is defined as usual.
+Importantly however, substitution has no effect on continuations: $K[x\backslash e'] = K$.
+
+Continuations can be constructed from other continuations.
+In particular, we will make use of continuation catenation, which is essentially list catenation.
+We write the catenations of two continuations simply as adjacency: the catenation of $K$ onto $K'$ is written $KK'$.
+Formally, $(t:K)K' = t:(KK')$ and $\blacksquare K' = K'$.
+Note that although the empty continuation is written similarly to a boundary, they are treated differently.
+
+We will need the total functions $guardWind$ and $guardAbort$ of two parameters: a continuation and a base-case expression.
+They generate a continuation by accumulating the guard expressions that have been pushed onto the passed continuation with \textsf{onWind} and \textsf{onAbort} respectively.
+Formally, we have
+\begin{itemize}
+\item $guardWind(K, e) = e_g : \blacksquare : \square; guardWind(K^\uparrow, e)$ when $K = K^\uparrow(\textbf{onWind}\;e_g:K^\downarrow)$ and $guardWind(K^\downarrow, e) = e:\blacksquare$,
+\item or $guardWind(K, e) = e:\blacksquare$ otherwise.
+\item $guardAbort(K, e) = e_g : \blacksquare : \square; guardAbort(K^\downarrow, e)$ when $K = {K^\uparrow(\textbf{onAbort}\;e_g:K^\downarrow)}$ and $guardAbort(K^\uparrow, e) = e:\blacksquare$,
+\item or $guardWind(K, e) = e:\blacksquare$ otherwise.
+\end{itemize}
+
+Intuitively, what these guards do is to accumulate a number of expressions.
+Each of the expressions is to be evaluated in its own sub-interpreter.
+The precise sequence is different for the two functions: the result of $guardWind$ will evaluate the guard expressions in FIFO order, but $guardAbort$ will evaluate them in LIFO order with respect to when the corresponding control guards were pushed to the stack.
+Either way, the last expression in the sequence is the base-case expression, and is evaluated in the main interpreter.
+Thus, these functions formalize the process of collecting and evaluating control guards that were registered by a guard expression before continuing on.
+
+We also require the partial function $splitStack$ taking a continuation and a cue.
+It finds in the passed continuation the location of the most-recently pushed instance of the passed cue and returns the stack portions strictly above and below the cue, as well as the handler attached to that cue.
+However, $splitStack$ will not allow the upper portion to contain a boundary; this protects the rest of the process from non-local control-flow bugs in any ostensibly control-pure expression.
+Formally, we have $splitStack(K, c) = \tuple{K^\uparrow, v_h, K^\downarrow}$ defined when 
+\begin{itemize}
+\item $K = K^\uparrow(\textbf{cue}\;c\;v_h : K^\downarrow)$,
+\item $K^\uparrow \neq \hat{K}^\uparrow(\textbf{cue}\;c\;\hat{v}_h : \hat{K}^\downarrow)$,
+\item and $K^\uparrow \neq \hat{K}^\uparrow(\blacksquare : \hat{K}^\downarrow)$
+\end{itemize}
+In all other cases, the relation is undefined.
+
+
+\subsection{Evaluation}
+
+We define evaluation of an expression using the transition system in Figure~\ref{dynamics}.
+The system acts on pairs, the first of which is the control stack, and the second element of which simply provides a supply of fresh cues.
+Each transition is of the form $\tuple{K, c} \longmapsto \tuple{K', c'}$.
+We write $\longmapsto^*$ for the reflexive-transitive closure of $\longmapsto$.
+We say that $eval(e) = v$ when $\tuple{e:\blacksquare,c} \longmapsto^* \tuple{v:\blacksquare,c'}$.
+In all other cases, $eval(e)$ is undefined.
+Since there is only one applicable transition for each pair, the system is trivially confluent.
+
+\begin{figure}[h!]
+\caption{Dynamic Semantics}
+\label{dynamics}
+
+\begin{center}\fbox{$\tuple{K,c} \longmapsto \tuple{K,c}$}\end{center}
+
+\begin{tabular}{rrcl}
+$\textsc{app}_1$: & $\tuple{e\;e' : K,c}$ & $\longmapsto$ & $\tuple{e : \square\;e' : K,c}$ \\
+$\textsc{seq}_1$: & $\tuple{e;e' : K,c}$ & $\longmapsto$ & $\tuple{\square;\;e : \square\;e' : K,c}$ \\
+$\textsc{cue}$: & $\tuple{\textsf{\newhandler} : K,c}$ & $\longmapsto$ & $\tuple{c : K,succ(c)}$ \\
+$\textsc{h}_1$: & $\tuple{\handle{e_c}{e_h}{e} : K,c}$ & $\longmapsto$ & $\tuple{e_c : \handle{\square}{e_h}{e} : K,c}$ \\
+$\textsc{a}_1$: & $\tuple{\abort{e_c}{e} : K,c}$ & $\longmapsto$ & $\tuple{e_c : \abort{\square}{e} : K,c}$ \\
+$\textsc{c}_1$: & $\tuple{\capture{e_c}{e} : K,c}$ & $\longmapsto$ & $\tuple{e_c : \capture{\square}{e} : K,c}$ \\
+$\textsc{r}_1$: & $\tuple{\pushSubcont{e}{e'} : K,c}$ & $\longmapsto$ & $\tuple{e : \pushSubcont{\square}{e'} : K,c}$ \\
+$\textsc{g}_\uparrow$: & $\tuple{\onWind{e_g}{e} : K,c}$ & $\longmapsto$ & $\tuple{e_g : \blacksquare : \square; e : \textbf{onWind}\;e_g : K,c}$ \\
+$\textsc{g}_\downarrow$: & $\tuple{\onUnwind{e_g}{e} : K,c}$ & $\longmapsto$ & $\tuple{e : \textbf{onUnwind}\;e_g : K,c}$ \\
+$\textsc{g}_\Downarrow$: & $\tuple{\onAbort{e_g}{e} : K,c}$ & $\longmapsto$ & $\tuple{e : \textbf{onAbort}\;e_g : K,c}$ \\
+\\
+$\textsc{app}_2$: & $\tuple{v : \square\;e : K,c}$ & $\longmapsto$ & $\tuple{e : v\;\square : K,c}$ \\
+$\textsc{app}$: & $\tuple{v : \lambda x.e\;\square : K,c}$ & $\longmapsto$ & $\tuple{e[x\backslash v] : K,c}$ \\
+$\textsc{seq}$: & $\tuple{v : \square;e : K,c}$ & $\longmapsto$ & $\tuple{e : K,c}$ \\
+$\textsc{h}_2$: & $\tuple{v : \handle{\square}{e_h}{e} : K,c}$ & $\longmapsto$ & $\tuple{ e_h : \handle{v}{\square}{e} : K,c}$ \\
+$\textsc{h}$: & $\tuple{v_h : \handle{c}{\square}{e} : K,c}$ & $\longmapsto$ & $\tuple{ e : \textbf{cue}\;c\;v_h : K,c}$ \\
+$\textsc{a}$: & $\tuple{v : \abort{\square}{e} : K,c}$ & $\longmapsto$ & $\tuple{K_gK^\downarrow,c}$ \\
+& & where & $\tuple{K^\uparrow, v_h, K^\downarrow} = splitStack(K, c)$ \\
+& & and & $K_g = guardAbort(K^\uparrow, v_h\;e)$ \\
+%$\textsc{a}_2$: & $\tuple{v : \abort{\square}{e} : K,c}$ & $\longmapsto$ & $\tuple{e : \abort{v}{\square} : K,c}$ \\
+%$\textsc{a}$: & $\tuple{v : \abort{c}{\square} : K,c}$ & $\longmapsto$ & $\tuple{K_gK^\downarrow,c}$ \\
+%& & where & $\tuple{K^\uparrow, v_h, K^\downarrow} = splitStack(K, c)$ \\
+%& & and & $K_g = guardAbort(K^\uparrow, v_h\;v)$ \\
+$\textsc{c}_2$: & $\tuple{v : \capture{\square}{e} : K,c}$ & $\longmapsto$ & $\tuple{e : \capture{v}{\square} : K,c}$ \\
+$\textsc{c}$: & $\tuple{v : \capture{c}{\square} : K,c}$ & $\longmapsto$ & $\tuple{v\;v_h\;K^\uparrow : K,c}$ \\
+& & where & $\tuple{K^\uparrow, v_h, K^\downarrow} = splitStack(K, c)$ \\
+$\textsc{r}$: & $\tuple{K' : \pushSubcont{\square}{e} : K,c}$ & $\longmapsto$ & $\tuple{K_gK'K,c}$ \\
+& & where & $K_g = guardWind(K', e)$ \\
+$\textsc{M}_c$: & $\tuple{v : \textbf{cue}\;c\;v_h : K,c}$ & $\longmapsto$ & $\tuple{v : K,c}$ \\
+$\textsc{M}_\blacksquare$: & $\tuple{v : \blacksquare : e : K,c}$ & $\longmapsto$ & $\tuple{v : K,c}$ \\
+$\textsc{M}_\uparrow$: & $\tuple{v : \textbf{onWind}\;e_g : K,c}$ & $\longmapsto$ & $\tuple{v : K,c}$ \\
+$\textsc{M}_\downarrow$: & $\tuple{v : \textbf{onUnwind}\;e_g : K,c}$ & $\longmapsto$ & $\tuple{e_g : \blacksquare : \square; v : K,c}$ \\
+$\textsc{M}_\Downarrow$: & $\tuple{v : \textbf{onAbort}\;e_g : K,c}$ & $\longmapsto$ & $\tuple{v : K,c}$ \\
+\end{tabular}
+\end{figure}
+
+Let us now examine the structure of the rules, which we have grouped into two sections.
+The first set we call ``winding rules'' because the transitions increase the size of the control stack, but take the top of the control stack from a non-value expression to a proper subexpression.
+We call the second set ``unwinding rules''.
+Here, the transitions always start with a value on top of the control stack and usually\footnote{Rule $\textsc{r}$ has the explicit purpose of adding onto the stack, and rule $\textsc{a}$ may increase the control stack if many control guards are aborted past.} reduce the size of the stack.
+In this way, evaluation starts in the winding rules and recurses until a value is found.
+Then, the unwinding rules iteratively shrink the control stack until either a new complex expression is found, such as the body of a function, or else the empty continuation is reached.
+
+Though there appear to be many transitions, there are really only a few ideas present which determine the pattern.
+Several rules perform only minor transformations, ensuring that a subexpression is evaluated down to a value before proceeding to the next part of the expression.
+Where we have this, we have grouped sets of rules by expression and given them a common base name.
+The uninteresting order-of-evaluation rules are given numeral subscripts.
+
+We have also included rules from our base calculus, which further increases the apparent size of the system.
+The three \textsc{app} rules implement call-by-value lambda calculus, and the two \textsc{seq} rules implement sequencing.
+
+It should be noted that only one rule, \textsc{cue}, inspects or alters the supply of cues in any way.
+Every other rule ignores the supply.
+So, even though writing the supply explicitly everywhere increases the size of the representation, its appearance in almost every rule is simply an uninteresting bookkeeping device.
+
+Finally, there are several rules for guard expressions (the \textsc{g} rules) and stack marks (the \textsc{m} rules).
+There are commonalities between each of these groups.
+The \textsc{g} rules merely install control guards, except for one which also executes the guard.
+Then, the \textsc{M} rules merely allow values to unwind past a stack mark, except for one which also executes a control guard.
+
+Now that we have the basic structure, let us examine the more novel cases in detail.
+We begin with the simplest, \textsc{cue}, which is the rule for the $\textsf{newCue}$ expression.
+This is essentially a cue constructor;
+with it, a cue is obtained from the supply and placed onto the stack, and the supply is incremented to maintain the supply's freshness.
+Once the programmer has a cue value on the stack, they can manipulate it, passing it to functions, or directly to other control operators.
+
+Next, the set of rules \textsc{h} deal with the \textsf{handle} expression, and are also quite simple.
+It marks the stack with a delimiter of the given cue and handler, and the body is evaluated above this mark.
+Thus, if an abort or escape is performed with the same cue, this mark will be found -- assuming it is still the uppermost with the cue.
+
+We now turn to stack marks and control guards.
+Note that there are only two ways by which a stack mark may be removed from the control stack, either by the $\textsc{m}$ rules or by rule $\textsc{a}$.
+The first case we call ``normal'' exit, and the second we call ``abnormal.''
+For normal exit, we see that unwinding past a stack mark simply removes the mark, except for rule $\textsc{m}_\downarrow$.
+In $\textsc{m}_\downarrow$, we ``trip'' the registered \textbf{onUnwind} control guard: we evaluate the guard in a sub-interpreter before continuing to unwind.
+We will examine rule \textsc{a} in more detail in a moment.
+
+Conversely, there are only two ways in which a control guard may be added to the stack, either by the $\textsc{g}$ rules or by rule $\textsc{r}$.
+It would again possible to distinguish between these two cases, but no production languages do so, so we will follow that tradition.
+As in the \textsc{m} rules, the \textsc{g} rules all simply push the control guard and evaluate the body, except for one rule.
+In $\textsc{g}_\uparrow$, the control guard is pushed, but before the body is evaluated, the guard expression is tripped.
+We will examine rule \textsc{r} in more detail in a moment.
+
+We now turn to consider rule \textsc{a}, which is probably the most complex rule.
+In it, we use $splitStack$ to remove the control stack down to and including the nearest matching delimiter.
+This is one of the two ways we may remove stack marks.
+Thus, in addition to removing a topmost section of the stack, we also accumulate using $guardAbort$ all of the \textbf{onAbort} control guards which were removed.
+These accumulated guards are then set to be evaluated in LIFO order.
+Finally, the base case of $guardAbort$ applies the handler function to the value aborted with, and this is where the main interpreter's evaluation resumes.
+
+Rule \textsc{c} applies when we unwind a value $v$ into a capture context.
+Here, the continuation beneath the capture context is not altered.
+Instead, we use $splitStack$ to obtain the section of the stack above the nearest delimiting mark and the mark's handler function.
+We then apply the handler function and the continuation found from $splitStack$ to $v$, the value we are unwinding.
+Therefore, $v$ must be a function of two (curried) arguments, the first of which accepts a handler function and the second a continuation.
+
+The rule \textsc{r} only allows a captured continuation to be unwound.
+The captured continuation is placed on the stack but, because this may add control guards to the stack, we also collect all of the captured continuation's wind-guards with $guardWind$.
+The body of the restore is used as the base-case expression.
+Thus, if no wind-guards are in the captured continuation, the effect of the rule is to insert the captured continuation just beneath the body expression so that once the expression reduces to a value, it will enter the captured continuation before control passes to the rest of the continuation.
+
+
+
+
+This concludes our discussion of the individual rules.
+We now turn to consider the implications of the system.
+
+TODO note unhandled cases: apply where first value is not a function, abort/capture where splitStack undefined, restore where first value is not a subcont
+
+TODO make note that some cases are not handled because the system is set up so that they do not appear: e.g. there is never an $e$ in $K$ except at the top of the stack, and an $e$ is always at the top.
+
+TODO in our system, boundaries are always over sequence contexts. We've added this complication so that it is easier to extend the system with more general sub-interpreters.
+
+TODO: Since we are using a transition system, it should be clear how to incorporate mutable state into the semantics without much difficulty.
+
+\subsection{Efficient Implementation}
+
+TODO: meta-continuatinos as in MFDC. I know there's some research in implementing continuations effectively in Racket (which I may have around here somewhere).
+
+	%
+	%\section{Impure Static Semantics}
+	%\label{impureStatics}
+	%
+	%Once we get beyond the simple uses of first-class control, it can be difficult to understand what types of values a continuation expects to receive and what types it produces.\footnote{In fact, although it is fairly easy to work out the types given a continuation, it may be difficult to work out from the source code which particular continuation there will be at runtime. The exact continuation captured may easily be dependent on user input, so one answer may be insufficient, which to this author is a very interesting property of first-class control.}
+	%As such, we would like a static type system to help us identify type errors in our code.
+	%We will begin by developing an impure type system, since it takes advantage of only the most basic features of our base calculus and is thus easiest to understand.
+	%We will make use of two judgements in particular, the is-of-kind judgement, written $\hasKind{\Delta}{\sigma}{\kappa}$ and the is-of-type judgement $\hasType{\Delta}{\Gamma}{e}{\sigma}$.
+	%We extend the type system with the axioms given in Figure~\ref{fig:impureStatics}, which we will now examine in plain language.
+	%
+	%\begin{figure}
+	%\caption{Static Semantics for Impure Control}
+	%\label{fig:impureStatics}
+	%
+	%\begin{center}\fbox{$\hasKind{\Delta}{\sigma}{\kappa}$}\end{center}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{}
+	%	\UnaryInfC{$\hasKind{\Delta}{\Cue}{\type\to\type\to\type}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{}
+	%	\UnaryInfC{$\hasKind{\Delta}{\Subcont}{\type\to\type\to\type}$}
+	%	\end{prooftree}
+	%	
+	%\begin{center}\fbox{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}\end{center}
+	%	
+	%	\begin{prooftree}
+	%	\AxiomC{}
+	%	\UnaryInfC{$\hasType{\Delta}{\Gamma}{\newhandler}{\Cue\;\sigma\;\sigma'}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_p}{\Cue\;\sigma'\;\sigma}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e'}{\sigma'\to\sigma}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}
+	%	\TrinaryInfC{$\hasType{\Delta}{\Gamma}{\handle{e_p}{e'}{e}}{\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_p}{\Cue\;\sigma'\;\sigma}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma'}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\abort{e_p}{e}}{\sigma_{any}}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_p}{\Cue\;\sigma''\;\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{(\sigma''\to\sigma')\to\Subcont\;\sigma\;\sigma'\to\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\capture{e_p}{e}}{\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e'}{\Subcont\;\sigma\;\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\pushSubcont{e'}{e}}{\sigma'}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_{in}}{\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\onWind{e_{in}}{e}}{\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_{out}}{\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\onUnwind{e_{out}}{e}}{\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_{out}}{\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\onAbort{e_{out}}{e}}{\sigma}$}
+	%	\end{prooftree}
+	%
+	%\end{figure}
+	%
+	%Perhaps the most important point in this type system is that the type of cues is in fact a type constructor of two arguments.
+	%The first type argument, which we call the in-type, specifies the types of values that $\textsf{abort}$ is allowed to send to a stack mark identified by the cue.
+	%The second type argument, which we call the out-type, is the type of values that the cue should allow to pass directly into the rest of the control stack, regardless of whether they are generated normally, or by the evaluation of the associated handler function.
+	%
+	%This is best seen in the axioms for $\textsf{handle}$ and $\textsf{abort}$.
+	%Recall that there are two ways to exit from the extent of a \textsf{handle} -- normal and abnormal exit.
+	%When we mark the stack using a \textsf{handle} expression, the type of value obtained must be the same whether from normal or abnormal exit.
+	%Further, since values unwind past the stack mark without alteration, this type must also be the same as the type of the body.
+	%Finally, the handler function provided must take the cue's in-type to its out-type, and this is really what determines how we think about the type parameters of cues.
+	%The cue's in- and out-types provide constraints to ensure that each cue may only be found in certain type contexts on the stack.
+	%We discuss the rest of the technique in our discussions of \textsf{abort} and \textsf{capture}.
+	%
+	%Now when we abort, we use the in-type of the cue to ensure that any found handler function will be able to accept the abort value.
+	%The type produced by the handler function has no affect on the abort expression itself, so we need not specify any particular type, though the cues in scope may give the programmer some idea anyway.
+	%Also, since execution will discard some top-most section of the stack, losing its type context, the type of an abort expression is unconstrained.
+	%So, \textsf{abort} only need check that its value is acceptable to any handler function it might be sent to.
+	%
+	%We now turn to capturing continuations, starting with the \textbf{Subcont} type constructor.
+	%This type constructor is the type for a continuation, and its type parameters determine what type the stack section expects to receive and what type it can then produce.
+	%It is very much like the function type in this way, and in fact, the author had considered re-using the function type here, but again decided to be explicit with the types to better note the novel features of the FCC.
+	%
+	%Recall from the dynamic semantics that the evaluation of a \textsf{capture} expression (culminating in rule \textsc{c}) not only reifies a portion of the stack, but also passes the deliminting mark's handler function and the reified continuation to another function $e$.
+	%The type of the handler function is determined by the type of the delimiting cue.
+	%The result type of the function $e$ must be the same as the type expected in the context of the \textsf{capture} expression itself, since the function is immediately tail-called.
+	%The type parameters of \textsf{Subcont} are fixed in a somewhat subtle way.
+	%The captured subcontinuation extends from (at the bottom) just above the cue to (at the top) just below the \textsf{capture} expression itself.
+	%Therefore, the \textbf{Subcont} expects to receive types of the same value as we expect to be produced by the \textsf{capture} expression.
+	%We also tie the out-type of the cue to the type produced by the subcontinuation, as it is (recall the explanation for \textsf{handle}) the type that is expected just below the bottom of the subcontinuation.
+	%
+	%For the last control operator, \textsf{restore}, it suffices to check that the type of the value fed into the continuation is acceptable to that continuation, and to derive the result type from the type we expect from the continuation.
+	%Again, this is essentially the same as typing a function application.
+	%Thus, the typing rules for the four control operators conspire, ``coordinating'' through the parameters of the \textbf{Cue} type constructor, to ensure that the stack is only split apart or spliced back together in ways that respect the types of values that can unwind past the split/join points.
+	%
+	%Finally, the three rules for guard expressions are all quite uninteresting.
+	%Since the wind expression is evaluated in its own sub-interpreter and its value discarded, the type of the guarding expression is unconstrained.
+	%Then, evaluation resumes with the body, so the type of the entire guard expression is the same as the type of the body.
+	%
+	%TODO when we create a cue, we can restrict its type.
+	%if the out-type is not restricted, then it is useless for continuation-capture, but we can install it in any context.
+	%if the in-type is not restricted, I'm not sure it's useful at all.
+	%constraining both types allows it to be used for continuations, and if we have them related by a single type variable
+	%
+	%
+	%
+	%%It looks like: when we abort, we only care about the input type of the handler. When we capture, we only care about the output type (unless we want to reinstate the handler?). Furthermore, when we install a handler, the output type of the handler specifically should be fixed (so we can install it in multiple contexts). Perhaps the thing to do is exploit the fact that capture can be translated as withSubcont+restore.
+	%
+	%%$\textbf{Prompt}\;\sigma$ defined as $\Cue\;\sigma\;\sigma$
+	%%capture uses Handler to grab the subcontinuation, and yes it does grab the installed handling function
+	%
+	%
+	%%Prompts are pushed onto the control stack as a single value, i.e. there is no additional data associated with the prompt.
+	%%The prompt type constructor is parameterized by a single type, which is the type of values which may pass down\footnote{assuming an upward-growing stack} the stack through the prompt.
+	%%It makes no difference if the values are passed because of normal evaluation or an abort.
+	%
+	%%In contrast, our basic stack marker, which we call a ``cue'', is associated with a handler function at the time when it is pushed to the control stack.
+	%%Furthermore, its type constructor is parameterized by two types.
+	%%We call the first an ``in-type'', which specifies the type of values which can be used to invoke a handler function associated with the cue.
+	%%The second, which we call an ``out-type'' specifies the type of values which may pass down the stack through the cue, just as the in prompts.
+	%
+	%%From the first three rules, we get exceptions. Adding the next two allow us to use first-class control: it is easy to show that with the following definitions, we can recover the system in MFDC. The final three rules add winding protection capabilities.
+	%
+	%We had considered a formulation of $\onWind$ as a binding form, as in Python and C\# context managers.
+	%However, this would break normal models of substitution.
+	%Consider an $\onWind$ that is responsible for opening a file: each call to $\texttt{fopen}$ produces a potentially different file pointer.
+	%Therefore, if the resultant file pointer were to always be bound to $x$, each time we restored a subcontinuation involving this $\onWind$, we would need to re-bind $x$ everywhere.
+	%This is impossible with a substitution model of binding, as substitution erases variables as they are bound.
+	%To avoid these awkward binding issues, guard expressions of the three \textsf{onX} forms should be responsible only for state changes, and have designed our operators appropriately.
+	%We will see an example of file handle management as we explore applications.
+	%We will also see that the apparent limitation of not being able to bind a variable is not a problem when simulating Python- and C\#-style context managers, as those languages' variable implicitly represent mutable cells.
+	%
+	%\section{Monadic Static Semantics}
+	%\label{pureStatics}
+	%
+	%\subsection{Monad}
+	%perhaps use a fixed \texttt{Obs} type here, or perhaps dump into the IO sin-bin
+	%
+	%this semantics is too restrictive: there are externally pure functions which use FCC internally, such as the foldl/ee in Figure~\ref{fig:ex-foldl/ee}. We therefore need a way to more accurately type expressions whose control effects are encapsulated.
+	%
+	%\begin{figure}
+	%\caption{Static Semantics for Monadic Control}
+	%\label{fig:monadicStatics}
+	%
+	%\begin{center}\fbox{$\hasKind{\Delta}{\sigma}{\kappa}$}\end{center}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{}
+	%	\UnaryInfC{$\hasKind{\Delta}{\Cue}{\type\to\type\to\type}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{}
+	%	\UnaryInfC{$\hasKind{\Delta}{\Subcont}{\type\to\type\to\type}$}
+	%	\end{prooftree}
+	%	
+	%	\begin{prooftree}
+	%	\AxiomC{}
+	%	\UnaryInfC{$\hasKind{\Delta}{\textbf{CC}}{\type\to\type}$}
+	%	\end{prooftree}
+	%	
+	%\begin{center}\fbox{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}\end{center}
+	%	
+	%	\begin{prooftree}
+	%	\AxiomC{}
+	%	\UnaryInfC{$\hasType{\Delta}{\Gamma}{\newhandler}{\textbf{CC}\;(\Cue\;\sigma\;\sigma'})$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_p}{\Cue\;\sigma'\;\sigma}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e'}{\sigma'\to\textbf{CC}\;\sigma}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\textbf{CC}\;\sigma}$}
+	%	\TrinaryInfC{$\hasType{\Delta}{\Gamma}{\handle{e_p}{e'}{e}}{\textbf{CC}\;\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_p}{\Cue\;\sigma'\;\sigma}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma'}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\abort{e_p}{e}}{\textbf{CC}\;\sigma_{any}}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_p}{\Cue\;\sigma''\;\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{(\sigma''\to\textbf{CC}\;\sigma')\to\Subcont\;\sigma\;\sigma'\to\textbf{CC}\;\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\capture{e_p}{e}}{\textbf{CC}\;\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e'}{\Subcont\;\sigma\;\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\pushSubcont{e'}{e}}{\textbf{CC}\;\sigma'}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_{in}}{\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\textbf{CC}\;\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\onWind{e_{in}}{e}}{\textbf{CC}\;\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_{out}}{\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\textbf{CC}\;\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\onUnwind{e_{out}}{e}}{\textbf{CC}\;\sigma}$}
+	%	\end{prooftree}
+	%
+	%	\begin{prooftree}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e_{out}}{\sigma'}$}
+	%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\textbf{CC}\;\sigma}$}
+	%	\BinaryInfC{$\hasType{\Delta}{\Gamma}{\onAbort{e_{out}}{e}}{\textbf{CC}\;\sigma}$}
+	%	\end{prooftree}
+	%
+	%\end{figure}
+	%
+	%\subsection{Encapsulation}
+	%\label{subsec:encapsulation}
+	%graduate to $\mathtt{runControl}:\forall a. (\forall r. \mathtt{Control}\;r\;a) \to a$
+	%
+	%\subsection{Combining Effects}
+	%
+	%monad transformers aren't the only way to combine effects, so lets just do this informally and mention a bunch of other ways to do it
+	%
+	%graduate to $\mathtt{runControlT} : \forall m,a. \mathtt{Monad}\;m \Rightarrow (\forall r. \mathtt{ControlT}\;r\;m\;a) \to m\;a$
+
+
+\section{Relationship to Existing Operators and Constructs}
+\label{relationship}
+
+TODO note specifically systems that expose only a subset of the operators here. in particular: try/catch/finally + onControl forms; shift/reset/dynamic-wind; etc
+
+\subsection{Delimited Control Operators: $\pm\mathcal{F}\pm$}
+
+\begin{align*}
+\textbf{withCont} \equiv\ &\lambda x_cx. \capture{x_c}{\lambda hk. \abort{x_c}{(x\;h\;k)}}
+%\\
+%\textsf{cupto }e_p\textsf{ as }x_k\textsf{ in }e \equiv\ &
+%	\textbf{withCont}\;e_p\;\lambda x_k. e
+\end{align*}
+
+\begin{align*}
+\textsf{run}[e_c]\;e\;e_h \equiv\ &\handle{e_c}{e_h}{e} \\
+\textbf{fcontrol} \equiv\ &\lambda x_cx. \textbf{withCont}\;x_c\;(\lambda hk.h\;x\;k)
+%
+%\letin{x_c=e_c,x=e}{ \\
+%	& \withCont{x_c}{\lambda h,k. h\;x\;k}}
+\end{align*}
+
+Let $\#$ be a default cue provided by the runtime.
+\begin{align*}
+\textsf{reset }e \equiv\ &\handle{\#}{\lambda x. x}{e} \\
+^-\F^- x_k.e \equiv\ &\textbf{withCont}\;\#\;\lambda x_hx_k.e \\
+\end{align*}
+
+
+
+in MFDC, handlers are trivial, so it is easy to get an equivalent handler back given the prompt
+
+we can't get back an arbitrary handler, though. therefore, we'll need to carefully choose where we reinstate prompts, if we can do it at all for some of these. which F operators we can simulate from -F- may determine whether I prefer to take the handler on capture
+
+\subsection{Undelimited Control}
+
+\subsection{Dynamic Wind}
+
+TODO onExit, dynamic-wind, note that this also handles D-style scope statements
+
+\subsection{Exceptions}
+TODO: in addition to the standard-average-exceptions system, we should also have a simpler one, along the lines of javascript, in which there is only one kind of exception
+
+FIXME: rewrite to not worry about types
+
+FIXME: we'll need bounded quantification to really describe the types involved here, since we're doing subtyping
+
+
+We now move to one of the more complex common systems that can be defined with this thesis' control operators: exception handling.
+Exception handling was developed independently of delimited control\footnote{also, independently of formal methods.}, and so we should not expect the translation to be as small and straightforward as our prior definitions.
+Translating an exception system into our system is an important test for two reasons.
+First, it shows that our system is capable of handling concepts broader than its own historical influences, and is therefore very general.
+Second, as exception handling is present in nearly every production programing language, it shows that our system is capable of handling the real-world issues that appear in production programs.
+
+
+An average exception system offers an exception type, $\textbf{Exn}$, a cue, $\textbf{exn}$, of type $\forall\alpha.\Cue\;\textbf{Exn}\;\alpha$, the ability to throw exceptions, catch those exceptions which are a subtype of a given exception type, a finally construct, and a facility for obtaining stack traces, which are simply internal representations of a continuation that may be rendered to a string.
+Depending on the exact language, there may be variations.
+For example, Python has stack traces which can be introspected, and offers a catch-else construct, whereas C++ and Haskell do not offer stack traces at all.
+These variations are minor enough not to be interesting.
+Further, most languages offer try-catch-finally as a statement, but a few, such as Haskell and Go, offer it as an expression.
+We will develop our try-catch-finally definition as an expression, as it is the more general case.
+
+
+An average exception system has several builtin facilities, which we will now describe.
+We will require that there be an expression $e\;\textsf{instanceof}\;\sigma$ of type $\textbf{Bool}$ which evaluates to $\textbf{true}$ iff $e$ is of type $\sigma'$ and $\sigma'$ is a subtype of $\sigma$.
+We will require that there be a primitive function $\textbf{add-stack-trace}$ of type $\forall \sigma,\sigma'.\textbf{Exn}\to\Subcont\;\sigma\;\sigma'\to\textbf{Exn}$ which annotates the exception with a trace of the passed continuation, appending to any existing trace.
+Finally, we require a primitive procedure $\textbf{print-stack-trace}$ of type $\textbf{Exn}\to()$ which prints the passed exception as a human-readable string.
+The user may or may not have access to $\textbf{add-stack-trace}$ and $\textbf{print-stack-trace}$.
+
+We may now define the syntax of a common exception system and its translation into the control operators we have so far defined.
+Figure~\ref{exceptionTranslation} gives two new expression syntaxes, \textsf{throw} and \textsf{try}-\textsf{catch}-\textsf{finally}.
+In \textsf{try}-\textsf{catch}-\textsf{finally}, there may be zero catch-clauses and the finally-clause may be omitted (with appropriate omissions in the translation).
+Note that the metavariables $trace$ and $x$ should be fresh to avoid awkward scoping issues.
+
+FIXME define onExit beforehand
+
+\begin{figure}
+\caption{An Average Exception System}
+\label{exceptionTranslation}
+
+\begin{tabular}{rcl}
+$\textsf{throw}\;e$ & $\equiv$ &
+\begin{tabular}{l}
+	$\textsf{capture}[\textbf{exn}]\;\lambda trace.$ \\
+	$\;\; \abort{\textbf{exn}}{\textbf{add-stack-trace}\;e\;trace}$ \\
+\end{tabular}
+\end{tabular}
+
+\vspace{1em}
+
+\begin{tabular}{rcl}
+\begin{tabular}{l}
+	$\textsf{try}\;e$ \\
+	$\textsf{catch}(\sigma_1\;x_1)\;e_1$ \\
+	$\ldots$ \\
+	$\textsf{catch}(\sigma_n\;x_n)\;e_n$ \\
+	$\textsf{finally}\;e_f$ \\
+\end{tabular}	
+& $\equiv$ &
+\begin{tabular}{l}
+	$\textsf{onExit}\;e_f;$ \\
+	$\textsf{handle}[\textbf{exn}]\;(\lambda x.$ \\
+	$\;\; \textsf{if}\;x\;\textsf{instanceof}\;\sigma_1$ \\
+	$\;\;\;\; \textsf{then}\;\textsf{let}\;x_1=x\;\textsf{in}\;e_1$ \\
+	$\;\; \ldots$ \\
+	$\;\; \textsf{elif}\;x\;\textsf{instanceof}\;\sigma_n$ \\
+	$\;\;\;\; \textsf{then}\;\textsf{let}\;x_n=x\;\textsf{in}\;e_n$ \\
+	$\;\; \textsf{else}\;\textsf{throw}\;x$) \\
+	$\textsf{in}\;e$ \\
+\end{tabular}
+\end{tabular}
+
+\end{figure}
+
+Finally, the runtime system must be able to cope with unhandled exceptions.
+For this, we translate a source program $e$ into $\textsf{try}\;e\;\textsf{catch}(\textbf{Exn}\;x)\;(\textbf{print-stack-trace}\;x;\textbf{terminate})$ before execution.
+
+
+TODO it'd be nice to show an abstract try-muticatch-else-finally function where handler determination is pure
+
+
+\section{Demonstration Language}
+\label{sec:contoy}
+In parallel with this thesis, we have developed a toy programming language called Contoy\footnote{Please excuse the awful portmanteau: I really don't care what the language is called, but we need to refer to it by \textit{something}.}.
+The primary goal of Contoy is only to demonstrate the implementability and utility of the behavior of the system of control operators developed in this thesis.
+It is not intended to demonstrate the utility of a rich type system, nor is it meant to be a language for production systems.
+
+Contoy belongs to the Lisp family of languages, and as such is a dynamically-typed functional programming language.
+It uses prefix notation and parenthesis signal function call\footnote{Strictly, a combination. Usually combinations are function calls, but some combinations involve special forms. Special forms interpret the parenthetical structure of its arguments differently, and often do not not evaluate all arguments immediately.} rather than simple grouping disambiguation.
+There are several differences from common Lisps.
+First, there is a focus on immutable rather than mutable data; mutable data must be explicitly placed within explicitly obtained reference cells.
+Second, there is no macro facility; for syntactic abstraction, we have implemented functions which take their arguments lazily.
+Assuming the reader is familiar with a Lisp descendant, a few examples should be able to demonstrate the unique features of Contoy besides the control operators.
+
+TODO: examples of Contoy code
+
+
+Though \textbf{onUnwind} and \textbf{onAbort} provide an implicit begin, we cannot do this for our \textbf{onExit} definition.
+As such, Contoy also has an \textbf{onExit} special form equivalent to our definition.
+Furthermore, we have decided to implement the \textbf{onExit} behavior directly rather than simulating it.
+Just because something \emph{can} be simulated does not mean it \emph{should} be.
+We expect \textbf{onExit} to be used often, so there is no reason to require extra computing resources to execute it.
+
+
+
+
+\section{Extended Example}
+\label{sec:foldl/ee}
+
+TODO pick an example that actually uses capture, though I want to keep some of this analysis
+
+\begin{figure}
+\caption{Accumulation-loop pattern codified}
+\label{fig:foldl/ee}
+
+%(define (foldl/ee zero xs body)
+%   (define mark newCue)
+%   (define (break val) (abort c val))
+%   (handle mark id
+%      (foldl zero xs (body break))))
+
+\begin{subfigure}[b]{0.5\textwidth}
+\begin{Verbatim}[commandchars=\\\[\]]
+(define (all? xs p)
+   (\highlight[foldl/ee] true xs
+      (lambda (out acc x)
+         (if (p x)
+             true
+             (out false)))))
+
+
+
+
+\end{Verbatim}
+\caption{with FCC}
+\end{subfigure}
+~
+\begin{subfigure}[b]{0.5\textwidth}
+\begin{Verbatim}[commandchars=\\\[\]]
+
+define all(xs, p):
+    \highlight[var] acc \highlight[=] true
+    \highlight[label] out
+    \highlight[for] x \highlight[in] xs\highlight[:]
+        if (p x):
+            \highlight[acc =] true
+        else:
+            \highlight[acc =] false
+            \highlight[break] out
+    \highlight[return acc]
+\end{Verbatim}
+\caption{without FCC}
+\end{subfigure}
+
+
+\end{figure}
+
+Our example is particularly simple, so several simplifying transformations might be automatically made by the programmer.
+We have specifically not made these transformations because we would like to examine the accumulation-loop pattern, regardless of the complexity of the problem to which it is applied.
+
+The lines-of-code savings here is not particularly interesintg.
+For one, this is purely due to surface syntax.
+More importantly, as the body becomes larger, the comparison will show less difference in line count.
+The important thing to note is that there are fewer ``moving parts'' in the example with FCC -- fewer fixed things that could be misplaced during further maintenance.
+Furthermore, even if the test imperative language had foldl already implemented, we cannot re-use it here, so we are forced to repeat -- manually or by copy-paste -- the body of foldl.
+
+note the possibility of nesting calls to foldl/ee.
+if Contoy were typed, we show that this is a pure function.
+
+\section{Applications}
+\label{application}
+\subsection{Context Managers}
+
+by formally defining a context manager in the terms above, we explicitly show how our system can abstract patterns of control
+
+
+\subsection{Fluid Variables}
+With fluid variables and a notion of procedure, we can define Go-style defer statements.
+
+\subsection{Subroutines}
+
+let $\textbf{call-frame}$ be a cue
+%$\textbf{call-frame}$ is a of type $\forall\alpha.\Cue\;\alpha\;\alpha$
+
+$\textsf{subroutine}\;x\;e \equiv \lambda x.\handle{\textbf{call-frame}}{\textbf{id}}{e\;x}$
+
+$\textsf{return}\;e \equiv \abort{\textbf{call-frame}}{e}$
+
+%this subroutine one really puts the question to where how polymorphic cues can be. This subroutine one looks like it can't be used to return a value of concrete type, because the type of the cue is abstract. I'm really not sure how I can make a single cue useful in many type contexts. For subroutines it's not a big deal: create a new prompt for each subroutine defined (that might make more sense, anyway), but for exceptions, it's a big problem.
+
+
+\subsection{Coroutines}
+
+
+
+\subsection{Generalized Resource Management}
+\subsection{Software Transactions}
+
+transactions recur, apparently: they're in pep 343 as well as D
+
+\subsection{Backtracking Algorithms}
+\subsection{Concurrent Algorithms}
+
+\section{Related Work}
+
+\section{Further Directions}
+
+type system: probably using predicative System F$_\omega$. The type of cues would be a two-place type constructor, enforcing purity with monads would rule out control-impure handlers and guards. Cues and subcontunations may need to account for co-/contravariance during type inference.
+
+sandboxing: restrict the environment in which a piece of code executes. as long as there is no way to generate new prompts and you can determine (at least dynamically before you call the untrusted code) which prompts are available to the untrusted code, then you can prevent the untrusted code from gaining control over the rest of the continuation. These are easy things to verify. Of course, the client (source of untrusted code) can still make use of advanced control constructs.
+
+compilation: JIT subcontinuations into functions
+
+Variations:
+\begin{itemize}
+\item We have chosen to split abort and capture, and simulate the two together. Should we instead merge abort and capture and simulate the split form? Should we have all three native? My guess is that an interpreter could easily recognize when abort immediately follows capture, so it could expose a split abort/capture interface while offering efficiency in the merged case.
+\item Should we distinguish normal and abnormal entrance? Should we distinguish a true abort (without possibility of re-instatement) from a capturing abort? If for example we only closed a file on true abort, how would we manage closing the file when the captured continuation is no longer needed?
+\end{itemize}
+
+
+
+
+%\part{Here there be dragons!}
+%
+%
+%%$$\mathtt{Prompt}\;a \equiv \Cue\;a\;a$$
+%%$$\mathtt{newPrompt} \equiv \mathtt{newHandler}\;\abs{x}{a}{x}$$
+%$$\withSubcont{e}{e'} \equiv \capture{e}{x}{\abort{e}{(e'\;x)}}$$
+%
+%Note the free type variables, which must be bound in the context in which these operators appear.
+%
+%
+%
+%We can recover try/finally, scope(exit) and dynamic-wind with the following:
+%
+%
+%$$\onExit{e}{e'} \equiv \onUnwind{e}{\onAbort{e}{e'}}$$
+%$$\tryfin{e}{e'} \equiv \onExit{e'}{e}$$
+%$$\dynamicWind{e_{in}}{e}{e_{out}} \equiv \onWind{e_{in}}{\onExit{e_{out}}{e}}$$
+%
+%The interesting part with onX will come when I add the control monad.
+%
+%TODO: there probably has to be a way for the $e_{in}$ (say, the result of opening a file) to give stuff (the file handle) to the body.
+%
+%
+%
+%\begin{prooftree}
+%\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\Cue\;\sigma\;\sigma}$}
+%	\AxiomC{$\hasType{\Delta}{\Gamma}{e}{\Cue\;\sigma\;\sigma}$}
+%		\AxiomC{$\hasType{\Delta}{\Gamma}{e'}{\Subcont\;\sigma'\;\sigma \to \sigma}$}
+%	\UnaryInfC{$\hasType{\Delta}{\Gamma,x:\Subcont\;\sigma'\;\sigma}{e'\;x}{\sigma}$}
+%	\BinaryInfC{$\hasType{\Delta}{\Gamma,x:\Subcont\;\sigma'\;\sigma}{\mathtt{raise}\;e\;(e'\;x)}{\sigma'}$}
+%	\UnaryInfC{$\hasType{\Delta}{\Gamma}{\abs{x}{\Subcont\;\sigma'\;\sigma}{\mathtt{raise}\;e\;(e'\;x)}}{\Subcont\;\sigma'\;\sigma \to \sigma'}$}
+%\BinaryInfC{$\hasType{\Delta}{\Gamma}{\mathtt{capture}\;e\;\abs{x}{\Subcont\;\sigma'\;\sigma}{\mathtt{raise}\;e\;(e'\;x)}}{\sigma'}$}
+%\UnaryInfC{$\hasType{\Delta}{\Gamma}{\mathtt{withSubcont}\;e\;e'}{\sigma'}$}
+%\end{prooftree}
+%
+%
+%Problems in the above are that we should rule out stuff like the following as invalid:
+%$$\onWind{(open\;file >> \abort{e}{e'})}{e''}$$
+%$$\onExit{(\abort{e}{e'} >> close\;handle)}{e''}$$
+%More generally, actions taken during wind-protection should be control-pure. This means that not only must we type control operators under some special monad, but we this monad must also be a monad transformer (in case there are still effects in the handlers, such as an IO action to open or close a file).
+
+
+
+\bibliographystyle{plain}
+\bibliography{fcc}
+
+\end{document}
+
+
+
+

@@ -56,6 +56,8 @@
 \newcommand\F{\mathcal{F}}
 \newcommand\pmFpm{^\pm\F^\pm}
 
+\newcommand{\angles}[1]{\langle#1\rangle}
+
 \title{On secure first-class control}
 \author{Eric Demko}
 \date{} % delete this line to display the current date
@@ -1145,6 +1147,208 @@ MEMOS:
 
 
 \part{Thesis}
+
+\section{Reformulation}
+
+Key idea is to specify handlers on both prompt and control operators.
+The handler is normally specified on the control operator, but it is passed not only the continuation, but also the handler of the delimiting prompt.
+Therefore, whenever we cannot decide on a course of action local to the control operator, we can pass control to the handler local to the prompt.
+
+
+
+\begin{align*}
+e ::=&\ v \mid x \mid e\;e \mid \nu \mid \#^e_be \mid \mathcal{F}^K_ee \\
+b ::=&\ e \mid {\upuparrows} \mid {\downarrow} \mid {\Downarrow} \mid {\blacksquare} \\
+v ::=&\ \x.e \mid p \mid \angles K \\
+K ::=&\ \square \mid K\;e \mid v\;K \mid \#_K^ee \mid \#_p^Ke \mid \#_b^eK \mid \F^\square_Ke \mid \F_e^\square K\\
+\end{align*}
+
+When $e \to e'$, we mean $e\backslash P \to e' \backslash P$.
+We use $e_1; e_2$ to mean $(\x.e_2)\;e_1$ as usual, where $x \notin fv(e_2)$.
+%We'll also need another sequencing method: when we write $e_1 \lseq e_2$ (left-associative), we mean $(\x.e_1; x)e_2$ where $x \notin fv(e_1)$.
+
+Reductions:
+$$(\x.e)\;v \to [x \mapsto v]e$$
+$$\angles K\;e \to K[e]$$
+$$\nu \backslash P \to p \backslash \{p\} \cup P \qquad\textrm{where $p \notin P$}$$
+$$\#^e_\downarrow v \to e; v
+	\quad\textrm{or else}\quad
+  \#^e_bv \to v$$
+$$\#_p^{v_h}\F_p^Kv \to v\;v_h\;\angles K$$
+
+Collect continuation:
+$$(\F^K_pv)\;e_2 \to \F^{K\;e_2}_pv$$
+$$v_1\;\F^K_pv \to \F^{v_1\;K}_pv$$
+$$\#_{\F_p^Kv}^{e_h}e \to \F_p^{\#_K^{e_h}e}v$$
+$$\#^{\F_p^Kv}_{p'}e \to \F_p^{\#^K_{p'}e}v$$
+
+$$\#_{p'}^{v_h}\F^K_pv \to \F^{\#_{p'}^{v_h}K}_pv
+  	\quad\textrm{where }p \neq p'$$
+$$\#^e_\upuparrows\F^K_pv \to \F^{e;\#^e_\upuparrows K}_pv$$
+$$\#^e_\downarrow \F^K_pv \to \F^{\#^e_\downarrow K}_pv$$
+$$\#^e_\Downarrow \F^K_pv \to e;\F^{\#^e_\Downarrow K}_pv$$
+$$\#^e_\blacksquare\F^K_pv \to e$$
+$$\F^\square_{\F^K_pv}e \to \F^{\F^\square_Ke}_pv$$
+$$\F^\square_{p_1}\F^K_{p_2}v \to \F^{\F^\square_{p_1}K}_{p_2}v$$
+
+
+A program is as before, but with the additional restriction that any $\F$ operators must be of the form $\F^\square_{e_p}e$.
+You'll have to provide your own handler to do something when abort happens past a control guard. Otherwise, control \emph{can} by default escape.
+Also, that ``where $x \notin fv(e)$'' side condition applies to everything altering the superscript of an $\F$.
+Evaluation order is free in this system, but when primitive operations are added, we will need a restriction against performing $\delta$-reductions within a value (underneath an abstraction, or within a sub-continuation).
+
+I'm fairly certain that this system satisfies Church-Rosser, by a similar argument to that in Felleisen.
+It makes my wonder: is there an extension to this system (only of the reduction rules) that is also Church-Rosser?
+
+Basic syntactic sugar:
+\begin{align*}
+\F_{e_p}e &\equiv \F_{e_p}^\square e \\
+\mathcal A_{e_p}e &\equiv
+	\letin{x_v=e}{\F_{e_p}\lambda h,k.h\;k\;x_v}
+	\\
+\#_\uparrow^ee_{body} &\equiv
+	e; e_{body}
+	\\
+\end{align*}
+
+Dynamic extent protection:
+\begin{align*}
+\textsf{onEnter }e; e_{body} &\equiv
+	\#_\uparrow^e\#_\upuparrows^ee_{body}
+	\\
+e_{body}\textsf{ finally }e &\equiv \\
+	\textsf{onExit }e; e_{body} &\equiv
+	\#_\downarrow^e\#_\Downarrow^ee_{body}
+	\\
+\textsf{onSuccess }e; e_{body} &\equiv
+	\#_\downarrow^ee_{body}
+	\\
+\textsf{onFailure }e; e_{body} &\equiv
+	\#_\Downarrow^ee_{body}
+	\\
+\textsf{dynamic-wind}^{e_{enter}}_{e_{exit}}e_{body} &\equiv
+	\textsf{onEnter }e_{enter}; \textsf{onExit }e_{exit}; e_{body}
+	\\
+\textsf{with }e_{cm}\textsf{ as }x\textsf{ in }e &\equiv
+	\letin{x_{cm}=e_{cm},x=x_{cm}.\_\_enter\_\_()}{\textsf{onExit }x_{cm}.\_\_exit\_\_(); e}
+	\\
+\end{align*}
+
+Exceptions:
+\begin{align*}
+\textsf{try }e_{body}\textsf{ except }x:e_h &\equiv
+	\#_\textbf{exn}^{\lambda k,x_v.\letin{x=\textbf{addTrace}\;x_v\;k}{e_h}}e_{body}
+	\\
+\textsf{throw }e &\equiv
+	\mathcal A_\textbf{exn}e
+	\\
+\textsf{try }e_{body}\textsf{ except }\tau\;x:e_h &\equiv
+	\textsf{try }e_{body}\textsf{ except }x:
+		\textsf{if }x\textsf{ instaceof }\tau
+		\textsf{ then }e_h
+		\textsf{ else throw }x
+	\\
+\end{align*}
+
+fcontrol:
+\begin{align*}
+\%_{e_p}\;e\;e_h &\equiv
+	\#_{e_p}^{\textbf{flip}\;e_h}e
+	\\
+\textsf{fcontrol}_{e_p}\;e &\equiv
+	\mathcal A_{e_p}e
+	\\
+\%\;e\;e_h &\equiv
+	\%_\mathbf{p}\;e\;e_h
+	\\
+\textsf{fcontrol}\;e &\equiv
+	\textsf{fcontrol}_\mathbf{p}\;e
+	\\
+\end{align*}
+
+cupto:
+\begin{align*}
+\textsf{set }e_p\textsf{ in }e &\equiv \\
+	\#_{e_p}e &\equiv
+	\#_{e_p}^{()}e
+	\\
+\textsf{cupto }e_p\textsf{ as }k\textsf{ in }e &\equiv
+	{}^-\F^-_{e_p}\lambda k.e
+	\\
+^-\F^-_{e_p}e &\equiv
+	\letin{x_p = e_p,f=e}{\F_{x_p}\lambda h,k.f\;k}
+	\\
+^+\F^-_{e_p}e &\equiv
+	\letin{x_p=e_p,f=e}{^-\F_{x_p}^-\lambda h,k.\#_{x_p}^hf\;k}
+	\\
+^-\F^+_{e_p}e &\equiv
+	\letin{x_p=e_p,f=e}{^-\F_{x_p}^-\lambda h,k.f\;\angles{\#_{x_p}^hk\;\square}}
+	\\
+^+\F^+_{e_p}e &\equiv
+	\letin{x_p=e_p,f=e}{^-\F_{x_p}^-\lambda h,k.\#_{x_p}^hf\;\angles{\#_{x_p}k\;\square}}
+	\\
+\end{align*}
+
+$\pmFpm$:
+\begin{align*}
+\textsf{prompt }e &\equiv\\
+	\textsf{reset }e &\equiv\\
+	\#e &\equiv
+	\#_\mathbf{p}e
+	\\
+^-\F^-e &\equiv {}^-\F^-_\mathbf{p}e \\
+^+\F^-e &\equiv {}^+\F^-_\mathbf{p}e \\
+^-\F^+e &\equiv {}^-\F^+_\mathbf{p}e \\
+^+\F^+e &\equiv {}^+\F^+_\mathbf{p}e \\
+\textsf{control }e &\equiv\\
+	\F e &\equiv
+	{}^+\F^-e
+	\\
+\textsf{shift }x\;e &\equiv
+	{}^+\F^+\x.e
+	\\
+\end{align*}
+
+MFDC:
+\begin{align*}
+\textsf{newPrompt} &\equiv \nu \\
+\textsf{pushPrompt}\;e_p\;e &\equiv
+	\#_{e_p}e
+	\\
+\textsf{withSubCont}\;e_p\;e &\equiv
+	{}^-\F^-_{e_p}e
+	\\
+\textsf{pushSubCont}\;e_k\;e_v &\equiv e_k\;e_v \\
+\end{align*}
+
+Undelimited control:
+\begin{align*}
+\textsf{withCont}\;e &\equiv
+	{}^+\F^-_\mathbf{p_0}e
+	\\
+\textsf{abort}\;e &\equiv
+	\textsf{withCont}\;\lambda \_.e
+	\\
+\textsf{callcc}\;e &\equiv
+	\letin{f=e}{\textsf{withCont}\;\lambda k. f\; \angles{\textsf{abort}\;(k\;\square)}}
+	\\
+\end{align*}
+
+Misc:
+\begin{align*}
+\textsf{marker }e &\equiv
+	\letin{f=e, x_p=\nu}{\#_{x_p}f\;x_p}
+	\\
+\textsf{spawn }e &\equiv
+	\letin{f=e}{\textsf{marker }\x_p.f\;\angles{^-\F^+_{x_p}\square}}
+	\\
+\textsf{capture}_{e_p}\;e &\equiv
+	\letin{x_p=e_p}{\F_{x_p}\lambda h,k.\#_{x_p}^hk\;(e\;k)}
+\end{align*}
+
+
+
+
 
 
 \section{Overview}

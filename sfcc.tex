@@ -180,7 +180,7 @@ As a simple example, a common pattern is an accumulation loop with early-exit.
 We can use FCC to efficiently implement this pattern and reuse it without difficulty, as in Figure~\ref{fig:ex-foldl/ee}.
 We will give further analysis in \S\ref{sec:foldl/ee} after we have developed our system of first-class control.
 
-\begin{figure}
+\begin{figure}[H]
 \caption{Define the accumulation loop with early exit}
 \label{fig:ex-foldl/ee}
 \begin{verbatim}
@@ -204,7 +204,7 @@ Native first-class control enables just such an improvement.
 Consider: library writers often create interfaces---esp. for working with external resources---that require the exposed procedures to be used in rigidly constrained orders.
 With first-class control, library writers can codify these patterns in executable code rather than mere documentation.
 
-\begin{figure}
+\begin{figure}[H]
 \caption{File API without FCC}
 \label{fig:fileAPInoFCC}
 \begin{verbatim}
@@ -1222,7 +1222,41 @@ MEMOS:
 \maybePage
 \part{Thesis}
 
+
 NOTE: everything below is in an intermediate state, subject to dramatic change. Probably most of this will be unrecognizable in the next draft.
+
+Outline:
+\begin{itemize}
+\item base lambda calculus and shorthands
+\item A calculus of FCC: first the use of continuation values, then newPrompt and F, then dynamic-extent guards, then barrier (note garbage collection of prompts).
+\item Basic shortcuts, like abort.
+\item Incestuous implementation of a few example FCC operators in my system  with example evaluation sketches.
+\item Implementation of throw/catch/finally, in various states of refinement.
+\item Nesting breakable loops, as a syntax extension, and as a simple lambda abstraction.
+\item Design choices for a source language: disallow anything other than identity K in F, always raise a stock exception when a barrier is tripped, a default handler for operators that do not normally specify handlers.
+\item Efficient implementation (the operational semantics).
+\item Library of control structures: everything in the review and plenty more besides.
+\end{itemize}
+
+Inventory of control structures:
+\begin{itemize}
+\item delimited control systems: abort, fcontrol, MFDC, cupto, $\pmFpm$, marker, spawn, capture (without abort)
+\item try/catch/else/finally: typed and untyped, with/without stack strace; with/without rethrow
+\item panic
+\item call/cc
+\item context manager
+\item dynamic extent protection: onEnter/Exit/Success/Failure, dynamic-wind
+\item looping constructs, esp. those with early exit
+\item conjunction
+\item anaphoric if
+\item fluid variables
+\item subroutines
+\item coroutines
+\item backtracking algorithms
+\item software transactions
+\item concurrent algorithms (cooperating threads)
+\item algorithm for the management of any resources
+\end{itemize}
 
 \section{Reformulation}
 
@@ -1234,7 +1268,7 @@ This is our answer to choice (4) from the analysis of delimited continuations; i
 
 \begin{align*}
 e ::=&\ v \mid x \mid e\;e \mid \nu \mid \#^e_be \mid \mathcal{F}^K_ee \\
-b ::=&\ e \mid {\upuparrows} \mid {\downarrow} \mid {\Downarrow} \mid {\blacksquare} \\
+b ::=&\ e \mid \Uparrow \mid {\downarrow} \mid {\Downarrow} \mid {\blacksquare} \\
 v ::=&\ \x.e \mid p \mid \angles K \\
 K ::=&\ \square \mid K\;e \mid v\;K \mid \#_K^ee \mid \#_p^Ke \mid \#_b^eK \mid \F^\square_Ke \mid \F_e^\square K\\
 \end{align*}
@@ -1260,7 +1294,7 @@ $$\#^{\F_p^Kv}_{p'}e \to \F_p^{\#^K_{p'}e}v$$
 
 $$\#_{p'}^{v_h}\F^K_pv \to \F^{\#_{p'}^{v_h}K}_pv
   	\quad\textrm{where }p \neq p'$$
-$$\#^e_\upuparrows\F^K_pv \to \F^{e;\#^e_\upuparrows K}_pv$$
+$$\#^e_\Uparrow\F^K_pv \to \F^{e;\#^e_\Uparrow K}_pv$$
 $$\#^e_\downarrow \F^K_pv \to \F^{\#^e_\downarrow K}_pv$$
 $$\#^e_\Downarrow \F^K_pv \to e;\F^{\#^e_\Downarrow K}_pv$$
 $$\#^e_\blacksquare\F^K_pv \to e$$
@@ -1284,6 +1318,9 @@ Basic syntactic sugar:
 	\\
 \#_\uparrow^ee_{body} &\equiv
 	e; e_{body}
+	\\
+\#_\upuparrows^ee_{body} &\equiv
+	\#_\uparrow^e\#_\Uparrow^ee_{body}
 	\\
 \end{align*}
 
@@ -1425,6 +1462,16 @@ Misc:
 	\letin{x_p=e_p}{\F_{x_p}\lambda h,k.\#_{x_p}^hk\;(e\;k)}
 \end{align*}
 
+
+If we get something like $\#_\Downarrow^e\F_p^{\F_{p'}\square}v$,
+which leads to $\F_p^{e;\#_\Uparrow^e\F_{p'}\square}v$,
+one might be afraid that that continuation, when called---$\angles{e;\#_\Uparrow^e\F_{p'}\square}\;v'$---will lead to a buildup of $e$ sequenced in a row---perhaps $e;\#_\Uparrow^e\F_{p'}v' \mapsto^* \F_{p'}^{e;(e;\#_\Uparrow^e\square)}v'$.
+This cannot happen, however, since $e$ will need to be forced to a value before the control operator can capture it.
+Preferring to capture continuations wherever possible, the correct evaluation sequence is:
+$$ e;\#_\Uparrow^e\F_{p'}v' \mapsto
+e;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto^*
+v;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto
+\F_{p'}^{e;\#_\Uparrow^e\square}v' $$
 
 
 
@@ -2022,6 +2069,50 @@ if Contoy were typed, we show that this is a pure function.
 
 \section{Applications}
 \label{application}
+
+\subsection{Conjunction}
+
+In ammonite, I might write:
+
+\begin{verbatim}
+conjCue is newCue
+obtain_ is prompt conjCue
+_and_ is lambda (x; y) +F- conjCue $ lambda (h; k) (k x && k y)
+_or_ is lambda (x; y) +F- conjCue $ lambda (h; k) (k x || k y)
+
+assert $ obtain 4 and 3 = 3 or 4
+\end{verbatim}
+
+This application was taken from \cite{ContInNatlang}. In that paper, it is noted that in J, sometimes \texttt{x (f g h) y} evaluates as \texttt{(x f y) g (x h y)}, but doesn't say much more than that.
+
+\subsection{Generalized Anaphoric If}
+
+\begin{verbatim}
+{
+  let x = X;
+  if (V) {A} else {B}
+}
+\end{verbatim}
+where \texttt{x} is free in \texttt{V}, \texttt{A} and/or \texttt{B}.
+Also, \texttt{x} is a temporary variable and so should only be in scope for the branch.
+
+In Ammonite:
+\begin{verbatim}
+cue is newCue
+ifitis is vau e (p; c; a) :
+  handle cue 
+  	lambda (k; it) :
+      eval
+        (extend-env e {it: it})
+        (if k it then eval c else a)
+	eval e p
+itis is lambda it :
+  abort cue it
+\end{verbatim}
+
+In languages where if statements are able to test many data types---Lisp, C and Python, among others---a common pattern is to 
+
+
 \subsection{Context Managers}
 
 by formally defining a context manager in the terms above, we explicitly show how our system can abstract patterns of control

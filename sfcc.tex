@@ -80,7 +80,7 @@
 %%% BEGIN DOCUMENT
 \begin{document}
 
-\maketitle
+\maketitle\maybePage
 \tableofcontents\newpage
 
 \begin{abstract}
@@ -1053,6 +1053,7 @@ A more in-depth discussion of the properties of this system is available in \cit
 
 \maybePage
 \subsubsection{cupto}
+\label{subsec:cupto}
 
 So far, we have considered control operators that can capture and abort only up to the nearest stack mark.
 In fact, systems based only on these operators suffer from a lack of composability.
@@ -1222,8 +1223,218 @@ MEMOS:
 \maybePage
 \part{Thesis}
 
+Our thesis begins with the presentation of a lambda calculus extended with first-class control.
+We then briefly examine its relationship to a few important existing control structures.
+Next, we present an operational semantics for our system in the form of an interpreter, and note additional efficiencies that may be garnered with an implementation.
+Finally, we examine a wide range of control structures, both mundane and advanced, and show implementations of these in our calculus.
 
-NOTE: everything below is in an intermediate state, subject to dramatic change. Probably most of this will be unrecognizable in the next draft.
+As in most discussions of formal semantics, we will be working simultaneously with syntax, semantics and metasyntax. To be unambiguous, we will typeset each level differently. Metasyntax will be in \textit{italics}, semantic objects will be written in \textbf{boldface}, and syntax will be written either in \textsf{sans-serif} for keywords or in \texttt{typewriter} for variable names.
+
+We will present the concepts of the SFCC calculus in stages, each building on the last.
+We have taken care so that the presentation of each system will remain valid we extend it with additional concepts.
+When we have developed SFCC in full, we give the system as a whole, so that readers may skip over the intermediate stages of development.
+
+\section{The SFCC Calculus}
+\subsection{Base Calculus}
+
+We begin our work with a call-by-value lambda calculus.
+We have chosen call-by-value specifically so that we can easily control the order of evaluation, esp. to obtain determinism.
+To briefly review, we give the grammar in Figure~\ref{fig:lambdaCalculus}.
+The notation $[x \backslash e']e$ is used for capture-avoiding substitution.
+The only reduction rule is $\beta$-reduction:
+$$(\x.e)\;v \mapsto [x \backslash v]e$$
+Unless otherwise noted, any reduction may be applied anywhere in a term.
+
+\begin{figure}[H]
+\caption{Grammar of $\lambda_v$ Calculus}
+\label{fig:lambdaCalculus}
+
+\begin{tabular}{llclll}
+Values & $v$ & ::= & $(\lambda x.e)$ && abstraction\\
+Expressions & $e$ & ::= & \\
+& & $|$ & $v$ && \\
+& & $|$ & $x$ && variable \\
+& & $|$ & $(e\;e)$ && application \\
+\end{tabular}
+\end{figure}
+
+
+As in most other presentations, we freely drop parenthesis where doing so would be unambiguous.
+We also include a few common syntactic niceties.
+\begin{itemize}
+\item Adjacent lambdas may be written as a single lambda.
+	$$\x_1,\ldots,x_n.e \equiv \x_1.\x_2\ldots\x_n.e$$
+\item Lambdas may discard their argument.
+	$$\lambda\_.e \equiv \x.e \quad\textrm{ where }x \notin fv(e)$$.
+\item Expressions may be sequenced; semicolon is right-associative.
+	$$e_1; e_2 \equiv (\lambda\_.e_2)\;e_1$$
+\item Let expressions increase readability,
+	$$\letin{x = e'}{e} \equiv (\x.e)\;e'$$
+\item and may make multiple bindings in sequence.
+	$$\letin{x_1 = e_1; \ldots; x_n = e_n}{e} \equiv \letin{x_1 = e_1}{\ldots\letin{x_n = e_n}{e}}$$
+\item We will occasionally have need of ``zero-argument'' lambdas.
+These are really no different than lambdas which discard their argument, which should not have required any work to compute.
+We nevertheless include syntax for them, so as to better express our intentions later.
+	$$\lambda().e \equiv \lambda\_.e$$
+	$$e\;() \equiv e\;v$$
+\end{itemize}
+
+
+\maybePage
+\subsection{Continuation Values}
+
+In our first extension, we add the notion of a subcontinuation---a reified continuation.
+The grammar is given in Figure~\ref{fig:addSubconts}.
+It is clear from structural induction that every subcontinuation has exactly one $\square$, also called a hole.
+Subcontinuations are always defined such that replacing this hole by an expression yields an expression.
+We denote the replacement of the hole in a subcontinuation $K$ by an expression $e$ as $K[e]$.
+
+\begin{figure}[H]
+\caption{Extend with Subcontinuations}
+\label{fig:addSubconts}
+
+\begin{tabular}{llclll}
+Values & $v$ & ::= & $\ldots$ \\
+& & $|$ & $\angles{K}$ && subcontinuation \\
+Continuations & $K$ & ::= & \\
+& & $|$ & $\square$ && hole \\
+& & $|$ & $K\;e$ &&  \\
+& & $|$ & $v\;K$ &&  \\
+
+\end{tabular}
+\end{figure}
+
+Subcontinuations purposely bear a remarkable resemblance to functions.
+They essentially are functions of one variable, where that variable is only used once in the function body.
+Unlike lambda-introduced functions which take their argument by value, subcontinuations take their argument by-name.
+To this end, we add the following reduction rule so that application is productive for both functions and subcontinuations:
+$$\angles{K}\;e \mapsto K[e]$$
+
+A dedicated notion of subcontinuation---as distinct from function---is important so that the calculus is able to manipulate the continuation before proceeding with other work.
+This will become particularly important for several control structures we implement later, esp. a control operator for continuation capture without abort.
+
+Readers might note that Felleisen in \cite{PromptApplication} models continuations using lambdas in continuation passing style.
+This reduces the size of his grammar, but at the cost of the presence difficult to untangle values, such as $\lambda z.(\lambda y.(\x.x)\;(1+y))\;(f\;z)$, which is simply $\angles{1 + f\;\square}$ in our formulation.
+As we will be regularly working with continuations, we have opted for a calculus which is easy to read, even at the cost of additional nonterminals and productions in the grammar.
+
+In our formulation, we have elected to represent continuations in the most readable form possible
+
+
+\maybePage
+\subsection{First-class Control}
+
+We now move to the core of the system---the control and delimiting operators---which will require several interlocking notions.
+The grammar is given in Figure~\ref{fig:addControl}.
+In the grammar, we introduced the metavariable $m$, which is so far only a synonym for an arbitrary expression.
+In the next sections, we will extend the $m$ category with additional productions.
+
+\begin{figure}[H]
+\caption{Extend with Control Operators}
+\label{fig:addControl}
+
+\begin{tabular}{llclll}
+Values & $v$ & ::= & $\ldots$ \\
+& & $|$ & $p$ && prompt \\
+Expressions & $e$ & ::= & $\ldots$ \\
+& & $|$ & $\nu$ && new prompt \\
+& & $|$ & $\#_{m}^{e_h}e$ && delimiting operator \\
+& & $|$ & $\F_{e_p}^Ke$ && control operator \\
+Marks & $m$ & ::= &  \\
+& & $|$ & $e$ && prompt delimiter \\
+Continuations & $K$ & ::= & \\
+& & $|$ & $\#_{K}^{e_h}e$ &&  \\
+& & $|$ & $\#_{p}^{K}e$ &&  \\
+& & $|$ & $\#_{p}^{v}K$ &&  \\
+& & $|$ & $\F_{K}^{\square}e$ &&  \\
+& & $|$ & $\F_{p}^{\square}K$ &&  \\
+
+\end{tabular}
+\end{figure}
+
+First, we have decided to allow for both control and delimiting operators to be tagged as in \S\ref{subsec:cupto}.
+To do this, we will need a new category of values---prompts---which we write with the metavariable $p$.
+Further, we need an operator with which we can create a new prompt value on demand, which we write $\nu$.
+This will require a crosscutting change to our evaluation procedure.
+Where before we simply reduced one expression to another, evaluation will now need to track which prompts are in use.
+To do this, we use relations of the form $e/P \mapsto e'/P'$, where $P$ is a set of prompts.
+We need not restate our previous reduction rules, however, as we can simply make the following identification:
+$$e \mapsto e' \equiv e/P \mapsto e'/P$$
+which is to say, we can leave out the specification of the set of prompts when it is neither inspected nor altered.
+
+With this in mind, the reduction rule for $\nu$ is
+$$\nu/P \mapsto p/P\cup\{p\} \quad\textrm{where }p \notin P$$
+Unlike other reduction rules, this one cannot be used underneath an abstraction.
+Thus, each application of $\lambda().\nu$ produces a distinct value.
+
+
+After \cite{PromptApplication}, the delimiting operator is written $\#$ and the control operator written as $\F$.
+Both enclose an expression called the body, which is written to the right of the operator.
+For the delimiting operator, the body is within the dynamic extent of the operator, and for the control operator, the body should evaluate to a handler.
+Both also take an expression, written as a subscript, which should reduce to a prompt. Through that, a control operator is able to identify a matching delimiter.
+
+The reduction rule for delimiters simply allows a value to pass through it without modification:
+$$\#_p^e v \mapsto v$$
+
+Reducing a control operator is much more intricate, however, as it involves delimited continuation capture.
+Control operators begin reduction when they are passed a value.
+They recurse up the expression until they match an appropriate delimiter.
+
+The base rule matches a control operator tagged with a prompt to an immediately enclosing delimiter tagged with the same prompt.
+At that point, we apply the handler and the captured continuation to the value passed to the control operator.
+$$\#_p^{v_h}\F_p^Kv \mapsto v\;v_h\;\angles K$$
+
+We now need reductions which allow a control operator to walk up an expression, capturing a continuation.
+We will need one reduction rule for each place an expression occurs in a production.
+While this means there will need to be many rules, they all follow the same pattern:
+we move the control operator up, placing the expression into the control operator's captured continuation, replacing where the control operator was with the previously captured continuation.
+
+$$(\F^K_pv)\;e_2 \mapsto \F^{K\;e_2}_pv$$
+$$v_1\;\F^K_pv \mapsto \F^{v_1\;K}_pv$$
+$$\#_{\F_p^Kv}^{e_h}e \mapsto \F_p^{\#_K^{e_h}e}v$$
+$$\#^{\F_p^Kv}_{p'}e \mapsto \F_p^{\#^K_{p'}e}v$$
+$$\#_{p'}^{v_h}\F^K_pv \mapsto \F^{\#_{p'}^{v_h}K}_pv
+  	\quad\textrm{where }p \neq p'$$
+$$\F^\square_{\F^K_pv}e \mapsto \F^{\F^\square_Ke}_pv$$
+$$\F^\square_{p_1}\F^K_{p_2}v \mapsto \F^{\F^\square_{p_1}K}_{p_2}v$$
+
+There is one final reduction rule, which is the garbage collection of prompts.
+This rule is optional, particularly if prompts are in infinite supply.
+When there are a finite number prompts (such as if they were represented by a 64-bit integer), garbage collection can allow more programs to evaluate successfully.
+
+$$e/P\cup P' \mapsto e/P \quad \textrm{where }\forall p \in P'. p \notin e$$
+
+In source programs, the grammar of the control operator is restricted so that it only appears with the $\square$ continuation.
+The allowance for a general continuation $K$ as the superscript of the control operator is only so that continuations may be easily captured during evaluation.
+Thus, we will often simply elide the continuation:
+$$\F_{e_p}e \equiv \F_{e_p}^{\square}e$$
+
+
+\maybePage
+\subsection{Extent Guards}
+
+%\maybePage
+\subsection{Barriers}
+
+%\maybePage
+\subsection{Summary of the SFCC Calculus}
+
+%\maybePage
+\section{Relationship to Existing Operators}
+
+
+
+
+
+
+
+
+
+
+
+\maybePage
+
+
+NOTE: everything below is in an intermediate state, subject to dramatic change, and probably deletion.
 
 Outline:
 \begin{itemize}
@@ -1233,7 +1444,7 @@ Outline:
 \item Incestuous implementation of a few example FCC operators in my system  with example evaluation sketches.
 \item Implementation of throw/catch/finally, in various states of refinement.
 \item Nesting breakable loops, as a syntax extension, and as a simple lambda abstraction.
-\item Design choices for a source language: disallow anything other than identity K in F, always raise a stock exception when a barrier is tripped, a default handler for operators that do not normally specify handlers.
+\item Design choices for a source language: disallow anything other than $\square$ as $K$ in $\F$; always raise a stock exception when a barrier is tripped; a default handler for operators that do not normally specify handlers; only allow $\#_\upuparrows$ instead of independent $\#_\uparrow$ and $\#_\Uparrow$.
 \item Efficient implementation (the operational semantics).
 \item Library of control structures: everything in the review and plenty more besides.
 \end{itemize}
@@ -1241,7 +1452,7 @@ Outline:
 Inventory of control structures:
 \begin{itemize}
 \item delimited control systems: abort, fcontrol, MFDC, cupto, $\pmFpm$, marker, spawn, capture (without abort)
-\item try/catch/else/finally: typed and untyped, with/without stack strace; with/without rethrow
+\item try/catch/else/finally: typed and untyped, with/without stack trace; with/without rethrow
 \item panic
 \item call/cc
 \item context manager

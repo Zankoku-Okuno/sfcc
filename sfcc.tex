@@ -69,6 +69,7 @@
 \newcommand\lseq{\mathbin\textrm{\guillemotleft}}
 
 \newcommand\F{\mathcal{F}}
+\newcommand\A{\mathcal{A}}
 \newcommand\pmFpm{^\pm\F^\pm}
 
 \newcommand{\angles}[1]{\langle#1\rangle}
@@ -1080,6 +1081,7 @@ This system, apart from specifying the handler on a delimiter and therefore requ
 
 \maybePage
 \subsubsection{Analysis}
+\label{subsubsec:delimControlAnalysis}
 
 The reader might surely wonder at this point if there are further variants.
 Indeed, there are, but these are either easily simulated by the above systems, or else are so unique to be of questionable utility.
@@ -1223,27 +1225,37 @@ MEMOS:
 \maybePage
 \part{Thesis}
 
-Our thesis begins with the presentation of a lambda calculus extended with first-class control.
+Our thesis begins with the presentation of an extended lambda calculus designed for secure first-class control, which we call the SFCC calculus or $\lambda_{SFCC}$.
 We then briefly examine its relationship to a few important existing control structures.
 Next, we present an operational semantics for our system in the form of an interpreter, and note additional efficiencies that may be garnered with an implementation.
 Finally, we examine a wide range of control structures, both mundane and advanced, and show implementations of these in our calculus.
 
 As in most discussions of formal semantics, we will be working simultaneously with syntax, semantics and metasyntax. To be unambiguous, we will typeset each level differently. Metasyntax will be in \textit{italics}, semantic objects will be written in \textbf{boldface}, and syntax will be written either in \textsf{sans-serif} for keywords or in \texttt{typewriter} for variable names.
 
+In the design of SFCC, our guiding principle has been in relation to the four parameters mentioned in \ref{subsubsec:delimControlAnalysis}:
+at each step, we have chosen notions which are able to implement either choice.
+The techniques we use are drawn primarily from four existing control concepts:
+the system $\pm\mathcal{F}\pm$ as presented in \cite{MFDC}, the \texttt{fcontrol} operator from \cite{HandlingControl}, dynamic-wind from Scheme, and the ability to discriminate normal and abnormal exit from D.
+Our system was developed independently of the requirements summarized in \S\ref{sec:review}, but we will show that it does meet those standards.
+This sort of demonstration is interesting because it shows that the power of the system extends beyond its direct influences.
+
 We will present the concepts of the SFCC calculus in stages, each building on the last.
 We have taken care so that the presentation of each system will remain valid we extend it with additional concepts.
 When we have developed SFCC in full, we give the system as a whole, so that readers may skip over the intermediate stages of development.
 
+
+
+
+\maybePage
 \section{The SFCC Calculus}
 \subsection{Base Calculus}
 
-We begin our work with a call-by-value lambda calculus.
+We begin our work with $\lambda_v$, the call-by-value lambda calculus.
 We have chosen call-by-value specifically so that we can easily control the order of evaluation, esp. to obtain determinism.
 To briefly review, we give the grammar in Figure~\ref{fig:lambdaCalculus}.
 The notation $[x \backslash e']e$ is used for capture-avoiding substitution.
 The only reduction rule is $\beta$-reduction:
 $$(\x.e)\;v \mapsto [x \backslash v]e$$
-Unless otherwise noted, any reduction may be applied anywhere in a term.
 
 \begin{figure}[H]
 \caption{Grammar of $\lambda_v$ Calculus}
@@ -1265,7 +1277,7 @@ We also include a few common syntactic niceties.
 \item Adjacent lambdas may be written as a single lambda.
 	$$\x_1,\ldots,x_n.e \equiv \x_1.\x_2\ldots\x_n.e$$
 \item Lambdas may discard their argument.
-	$$\lambda\_.e \equiv \x.e \quad\textrm{ where }x \notin fv(e)$$.
+	$$\lambda\_.e \equiv \x.e \quad\textrm{ where }x \notin fv(e)$$
 \item Expressions may be sequenced; semicolon is right-associative.
 	$$e_1; e_2 \equiv (\lambda\_.e_2)\;e_1$$
 \item Let expressions increase readability,
@@ -1274,7 +1286,7 @@ We also include a few common syntactic niceties.
 	$$\letin{x_1 = e_1; \ldots; x_n = e_n}{e} \equiv \letin{x_1 = e_1}{\ldots\letin{x_n = e_n}{e}}$$
 \item We will occasionally have need of ``zero-argument'' lambdas.
 These are really no different than lambdas which discard their argument, which should not have required any work to compute.
-We nevertheless include syntax for them, so as to better express our intentions later.
+We nevertheless include syntax for them, so as to better express our intentions.
 	$$\lambda().e \equiv \lambda\_.e$$
 	$$e\;() \equiv e\;v$$
 \end{itemize}
@@ -1314,19 +1326,18 @@ A dedicated notion of subcontinuation---as distinct from function---is important
 This will become particularly important for several control structures we implement later, esp. a control operator for continuation capture without abort.
 
 Readers might note that Felleisen in \cite{PromptApplication} models continuations using lambdas in continuation passing style.
-This reduces the size of his grammar, but at the cost of the presence difficult to untangle values, such as $\lambda z.(\lambda y.(\x.x)\;(1+y))\;(f\;z)$, which is simply $\angles{1 + f\;\square}$ in our formulation.
+This reduces the size of his grammar, but at the cost of the presence of difficult to untangle values, such as $\lambda z.(\lambda y.(\x.x)\;(1+y))\;(f\;z)$, which is simply $\angles{1 + f\;\square}$ in our notation.
 As we will be regularly working with continuations, we have opted for a calculus which is easy to read, even at the cost of additional nonterminals and productions in the grammar.
-
-In our formulation, we have elected to represent continuations in the most readable form possible
+Nevertheless, Felleisen clearly shows that this distinction is merely cosmetic.
 
 
 \maybePage
 \subsection{First-class Control}
 
-We now move to the core of the system---the control and delimiting operators---which will require several interlocking notions.
+We now move to the core of the system---the control and delimiting operators---which will require several interlocking notions:
+those of prompt creation, and delimiting and control operators.
 The grammar is given in Figure~\ref{fig:addControl}.
-In the grammar, we introduced the metavariable $m$, which is so far only a synonym for an arbitrary expression.
-In the next sections, we will extend the $m$ category with additional productions.
+The last two productions for $K$ now include two $K$ non-terminals; we recover the existence of a single salient $\square$ by ignoring the $K'$ in these productions as we search for $\square$.
 
 \begin{figure}[H]
 \caption{Extend with Control Operators}
@@ -1337,17 +1348,14 @@ Values & $v$ & ::= & $\ldots$ \\
 & & $|$ & $p$ && prompt \\
 Expressions & $e$ & ::= & $\ldots$ \\
 & & $|$ & $\nu$ && new prompt \\
-& & $|$ & $\#_{m}^{e_h}e$ && delimiting operator \\
+& & $|$ & $\#_{e_p}^{e_h}e$ && delimiting operator \\
 & & $|$ & $\F_{e_p}^Ke$ && control operator \\
-Marks & $m$ & ::= &  \\
-& & $|$ & $e$ && prompt delimiter \\
 Continuations & $K$ & ::= & \\
 & & $|$ & $\#_{K}^{e_h}e$ &&  \\
 & & $|$ & $\#_{p}^{K}e$ &&  \\
 & & $|$ & $\#_{p}^{v}K$ &&  \\
-& & $|$ & $\F_{K}^{\square}e$ &&  \\
-& & $|$ & $\F_{p}^{\square}K$ &&  \\
-
+& & $|$ & $\F_{K}^{K'}e$ &&  \\
+& & $|$ & $\F_{p}^{K'}K$ &&  \\
 \end{tabular}
 \end{figure}
 
@@ -1364,6 +1372,7 @@ which is to say, we can leave out the specification of the set of prompts when i
 With this in mind, the reduction rule for $\nu$ is
 $$\nu/P \mapsto p/P\cup\{p\} \quad\textrm{where }p \notin P$$
 Unlike other reduction rules, this one cannot be used underneath an abstraction.
+Further, a if $e$ contains a $\nu$ subexpression, multiple copies of $e$ in the same program will produce different results.
 Thus, each application of $\lambda().\nu$ produces a distinct value.
 
 
@@ -1376,7 +1385,7 @@ The reduction rule for delimiters simply allows a value to pass through it witho
 $$\#_p^e v \mapsto v$$
 
 Reducing a control operator is much more intricate, however, as it involves delimited continuation capture.
-Control operators begin reduction when they are passed a value.
+Control operators begin reduction when their body is reduced to a value.
 They recurse up the expression until they match an appropriate delimiter.
 
 The base rule matches a control operator tagged with a prompt to an immediately enclosing delimiter tagged with the same prompt.
@@ -1384,9 +1393,9 @@ At that point, we apply the handler and the captured continuation to the value p
 $$\#_p^{v_h}\F_p^Kv \mapsto v\;v_h\;\angles K$$
 
 We now need reductions which allow a control operator to walk up an expression, capturing a continuation.
-We will need one reduction rule for each place an expression occurs in a production.
+We will need one reduction rule for each place an expression occurs in each production.
 While this means there will need to be many rules, they all follow the same pattern:
-we move the control operator up, placing the expression into the control operator's captured continuation, replacing where the control operator was with the previously captured continuation.
+we keep the control operator, but move the surrounding expression into the control operator's captured continuation, replacing where the control operator was with the previously captured continuation.
 
 $$(\F^K_pv)\;e_2 \mapsto \F^{K\;e_2}_pv$$
 $$v_1\;\F^K_pv \mapsto \F^{v_1\;K}_pv$$
@@ -1394,41 +1403,521 @@ $$\#_{\F_p^Kv}^{e_h}e \mapsto \F_p^{\#_K^{e_h}e}v$$
 $$\#^{\F_p^Kv}_{p'}e \mapsto \F_p^{\#^K_{p'}e}v$$
 $$\#_{p'}^{v_h}\F^K_pv \mapsto \F^{\#_{p'}^{v_h}K}_pv
   	\quad\textrm{where }p \neq p'$$
-$$\F^\square_{\F^K_pv}e \mapsto \F^{\F^\square_Ke}_pv$$
-$$\F^\square_{p_1}\F^K_{p_2}v \mapsto \F^{\F^\square_{p_1}K}_{p_2}v$$
+$$\F^{K'}_{\F^K_pv}e \mapsto \F^{\F^{K'}_Ke}_pv$$
+$$\F^{K'}_{p_1}\F^K_{p_2}v \mapsto \F^{\F^{K'}_{p_1}K}_{p_2}v$$
 
-There is one final reduction rule, which is the garbage collection of prompts.
-This rule is optional, particularly if prompts are in infinite supply.
-When there are a finite number prompts (such as if they were represented by a 64-bit integer), garbage collection can allow more programs to evaluate successfully.
-
-$$e/P\cup P' \mapsto e/P \quad \textrm{where }\forall p \in P'. p \notin e$$
-
-In source programs, the grammar of the control operator is restricted so that it only appears with the $\square$ continuation.
-The allowance for a general continuation $K$ as the superscript of the control operator is only so that continuations may be easily captured during evaluation.
-Thus, we will often simply elide the continuation:
+It is not often necessary to specify an initial continuation other than $\square$ for control operators in the source language.
+Thus, we will often simply elide it:
 $$\F_{e_p}e \equiv \F_{e_p}^{\square}e$$
-
 
 \maybePage
 \subsection{Extent Guards}
 
-%\maybePage
+Having now introduced control operators, we turn to the other main part of the system---the operators which can ensure correct setup and cleanup of resources.
+These we call extent guards, because they register expressions which are then executed when control enters/exits the dynamic extent of the guard.
+We supply enough guards to recognize local and non-local control flow, or either.
+The extent guard concept can be approached in any of several ways, two of which we will now give.
+
+First, they are an extension of D's scope statements.
+Where scope statements can be triggered on normal, abnormal, or any exit, extent guards can also be triggered on normal, abnormal or any entrance.
+
+Second, extent guards may be seen as an atomization of the aspects of dynamic-wind.
+In dynamic-wind, code for both entrance and exit are specified at one, and these codes are executed regardless of whether the entrace/exit was normal or abnormal.
+The entrance and exit extent guards can be specified independently of the other, and can also discriminate between normal and abnormal jumps.
+
+To help keep track of these six extent guards, we use mnemonics in our notation.
+Those guards which are executed on entrance are represented with upwards arrows, which those executed on exit with downwards arrows; this is in keeping with an upward-growing stack convention.
+Extent guards executed on local control flow are represented with a simple arrow ($\uparrow$), those executed on non-local control flow with a broad arrow ($\Uparrow$), and those executed on any control flow with double arrows ($\upuparrows$).
+
+\begin{figure}[H]
+\caption{Extend with Extent Guards}
+\label{fig:addGuards}
+
+\begin{tabular}{llclll}
+Expressions & $e$ & ::= & $\ldots$ &  \\
+& & $|$ & $\#_\Uparrow^{e_g}e$ && non-local entrance guard \\
+& & $|$ & $\#_\Downarrow^{e_g}e$ && non-local exit guard \\
+Continuations & $K$ & ::= & \\
+& & $|$ & $\#_{\Uparrow}^{e}K$ &&  \\
+& & $|$ & $\#_{\Downarrow}^{e}K$ &&  \\
+\end{tabular}
+\end{figure}
+
+In the grammar, given in Figure~\ref{fig:addGuards}, we only add the forms for guards triggered on non-local control flow.
+We do this to reduce the size of our calculus, recognizing that the others are easily simulated:
+$$\#_\uparrow^{e_g}e \equiv e_g; e$$
+$$\#_\downarrow^{e_g}e \equiv \letin{x=e}{e_g; x}$$
+$$\#_\upuparrows^{e_g}e \equiv \#_\uparrow^{e_g}\#_\Uparrow^{e_g}e$$
+$$\#_\downdownarrows^{e_g}e \equiv \#_\downarrow^{e_g}\#_\Downarrow^{e_g}e$$
+
+
+For each new expression, we need two reduction rules.
+Note that these only apply to the non-local extent guards specified in the grammar, not to the simulations.
+First, the regular reduction rules
+$$\#_{\Uparrow}^{e}v \mapsto v$$
+$$\#_{\Downarrow}^{e}v \mapsto v$$
+are a straightforward extension of the rule $\#_{p}^{e}v \mapsto v$ from the last section.
+
+The next pair relate to continuation capture, and they each slightly break the pattern for continuation capture established in the last section.
+First, examine the capture rule for non-local exit:
+$$\#_{\Downarrow}^{e}\F_p^K v \mapsto e;\F_p^{\#_\Downarrow^{e}K}v$$
+In addition to floating the control operator up the expression tree, this rule also inserts a copy of the guard expression to be evaluated before continuation capture can proceed.
+The case for non-local entrance is somewhat more subtle:
+$$\#_{\Uparrow}^{e}\F_p^K v \mapsto \F_p^{e;\#_\Uparrow^{e}K}v$$
+Here, capture proceeds as normal, but the copied guard expression is inserted into the captured continuation.
+The idea is that when the continuation is reinstated, the guard expression will be evaluated before another redex is found.
+
+\maybePage
 \subsection{Barriers}
 
-%\maybePage
+Finally, we introduce one additional stack mark, which we call a barrier.
+Barriers are introduced in order to delimit all control operators, regardless of their prompt.
+The grammar is given in Figure~\ref{fig:addBarriers}.
+
+\begin{figure}[H]
+\caption{Extend with Barriers}
+\label{fig:addBarriers}
+
+\begin{tabular}{llclll}
+Marks & $e$ & ::= & $\ldots$ &  \\
+& & $|$ & $\#_\blacksquare^{e_h}e$ && barrier \\
+Continuations & $K$ & ::= & \\
+& & $|$ & $\#_{\blacksquare}^{K}e$ &&  \\
+\end{tabular}
+\end{figure}
+
+
+There are two normal reduction rules.
+The first should look familiar; it simply allows values to unwind past the barrier.
+$$\#_\blacksquare^{v_h}v \mapsto v$$
+The other reduction concerns an attempt to bypass the barrier with a control operator:
+$$\#_\blacksquare^{v_h}\F_p^K v \mapsto v_h\;p\;\angles{K}\;v$$
+In this case, the various values involved are diverted to the handler specified by the barrier.
+Usually, the handler should simply initiate an error-handling mode, perhaps using its arguments to produce diagnostic messages.
+
+Finally, there is a standard continuation capture rule:
+$$\#_\blacksquare^{\F_p^K v}e \mapsto \F_p^{\#_\blacksquare^K e}v$$
+
+Barriers are likely the most difficult expressions of this calculus to give a type.
+Indeed, it may well be impossible to do so in any practical manner.
+The formulation of barriers here is nevertheless the most general possibility for dynamically-typed languages.
+If we were to adapt this concept to statically-typed languages, we need only recognize the original purpose for barriers: to prevent control from escaping the extent the barrier sets.
+In statically-typed languages, we can restrict the barrier to either raise an appropriate exception or simply terminate the program immediately.
+In this way, the handler is not dependent on the type of value and captured continuation obtained.
+We will say more on this as we develop the applications of this system.
+
+\maybePage
 \subsection{Summary of the SFCC Calculus}
 
-%\maybePage
+This section collects the formal system of SFCC described above.
+In addition, it applies somewhat more formalism in defining what reductions may be applied in what cases, thus giving a formal definition of equivalence.
+We then collect the various syntactic abbreviations we have so far defined.
+These do not extend the expressive power of the calculus in the sense of \cite{Felleisen90expressive}, and so we may regard these abbreviations as inessential to the theory;
+nevertheless, their use greatly improves readability, which will be important when we apply our calculus.
+
+We begin with the grammar, given in Figure~\ref{fig:SFCCgrammar}.
+
+\begin{figure}[H]
+\caption{Grammar of SFCC Calculus}
+\label{fig:SFCCgrammar}
+
+\begin{tabular}{llcl}
+Values & $v$ & ::= & $\lambda x.e \mid \angles{K} \mid p$ \\
+Expressions & $e$ & ::= &
+          $v \mid
+           x \mid
+           e\;e$ \\
+& & $|$ & $\nu \mid
+           \#_{e_p}^{e_h}e \mid
+           \F_{e_p}^Ke$ \\
+& & $|$ & $\#_\Uparrow^{e_g}e \mid
+           \#_\Downarrow^{e_g}e \mid
+           \#_\blacksquare^{e_h}e$ \\
+Continuations & $K$ & ::= &
+          $\square$ \\
+& & $|$ & $K\;e \mid v\;K$ \\
+& & $|$ & $\#_{K}^{e_h}e \mid
+           \#_{p}^{K}e \mid
+           \#_{p}^{v}K$ \\
+& & $|$ & $\F_{K}^{\square}e \mid
+           \F_{p}^{\square}K$ \\
+& & $|$ & $\#_{\Uparrow}^{e}K \mid
+           \#_{\Downarrow}^{e}K \mid
+           \#_{\blacksquare}^{K}e$ \\
+\end{tabular}
+\end{figure}
+
+
+The equational theory is specified by a set of reduction relations.
+A reduction relation takes the form
+$$e/P \mapsto e'/P'$$
+where $P, P'$ are sets of prompts and $R$ is a reduction rule, or set of such rules.
+In the case where $P = P'$, we will elide mention of the prompt set:
+$$e \mapsto e' \equiv e/P \mapsto e'/P$$
+
+
+We now turn to the individual reduction rules of SFCC.
+The primary reductions are those dealing with application:
+$$(\x.e)\;v \mapsto [x \backslash v]e \qquad
+  \angles{K}\;e \mapsto K[e]$$
+There are then three rules dealing with the creation of prompts and the delimiting of continuation capture:
+$$\nu/P \mapsto p/P\cup\{p\} \quad\textrm{where }p \notin P$$
+$$\#_p^{v_h}\F_p^Kv \mapsto v\;v_h\;\angles K$$
+$$\#_\blacksquare^{v_h}\F_p^K v \mapsto v_h\;p\;\angles{K}\;v$$
+Next, two rules implement extent guards, which offer the ability to trigger expressions based on no-local control flow:
+$$\#_{\Downarrow}^{e}\F_p^K v \mapsto e;\F_p^{\#_\Downarrow^{e}K}v \qquad
+  \#_{\Uparrow}^{e}\F_p^K v \mapsto \F_p^{e;\#_\Uparrow^{e}K}v$$
+These together comprise the interesting core of the system.
+
+Four more rules are required to allow values to exit locally past various stack marks.
+$$\#_p^{v_h} v \mapsto v \qquad
+  \#_{\Uparrow}^{e}v \mapsto v \qquad
+  \#_{\Downarrow}^{e}v \mapsto v \qquad
+  \#_\blacksquare^{v_h}v \mapsto v$$
+
+Finally, a number of rules are required to implement continuation capture.
+Each of these rules follows a standard pattern, allowing the control operator to float to the top of an expression by moving the surrounding expression to surround the control operator's $K$ slot.
+$$(\F^K_pv)\;e_2 \mapsto \F^{K\;e_2}_pv \qquad
+  v_1\;\F^K_pv \mapsto \F^{v_1\;K}_pv$$
+$$\#_{\F_p^Kv}^{e_h}e \mapsto \F_p^{\#_K^{e_h}e}v \qquad
+  \#^{\F_p^Kv}_{p'}e \mapsto \F_p^{\#^K_{p'}e}v$$
+$$\#_{p'}^{v_h}\F^K_pv \mapsto \F^{\#_{p'}^{v_h}K}_pv
+  	\quad\textrm{where }p \neq p'$$
+$$\F^{K'}_{\F^K_pv}e \mapsto \F^{\F^{K'}_Ke}_pv \qquad
+  \F^{K'}_{p_1}\F^K_{p_2}v \mapsto \F^{\F^{K'}_{p_1}K}_{p_2}v$$
+$$\#_\blacksquare^{\F_p^K v}e \mapsto \F_p^{\#_\blacksquare^K e}v$$
+
+Although most of the calculus is confluent, the presence of $\nu$ and its associated reduction rule present some difficulties.
+The difficulty occurs because some of the reduction rules make a copy of an expression.
+Since $\nu$ results in a distinct prompt on each evaluation, we will note a difference whether the $\nu$ expression is copied or its result is copied.
+Since most language make use of a left-to-right applicative order evaluation strategy, we will simply generalize this strategy to our calculus.
+The system is then trivially confluent, as there is at most one reduction possible.
+No doubt conservative extensions of this strategy may be adopted, and we leave this open to later authors, who may wish to make additional extensions (such as the inclusion of mutable state) which would impact the extension.
+
+When we have $e_1/P_1 \mapsto_R e_2/P_2$, then we also have
+$$e_1\;e/P_1 \mapsto_R e_2\;e/P_2 \qquad
+  v\;e_1/P_1 \mapsto_R v\;e_2/P_2$$
+$$\#_{e_1}^{e_h}e/P_1 \mapsto_R \#_{e_2}^{e_h}e/P_2 \qquad
+  \#_{p}^{e_1}e/P_1 \mapsto_R \#_{p}^{e_2}e/P_2 \qquad
+  \#_{p}^{v_h}e_1/P_1 \mapsto_R \#_{p}^{v_h}e_2/P_2$$
+$$\F_{e_1}^K e/P_1 \mapsto \F_{e_2}^K e/P_2 \qquad
+  \F_{p}^K e_1/P_1 \mapsto \F_{p}^K e_2/P_2$$
+$$\#_\Uparrow^{e_g}e_1/P_1 \mapsto \#_\Uparrow^{e_g}e_2/P_2 \qquad
+  \#_\Downarrow^{e_g}e_1/P_1 \mapsto \#_\Downarrow^{e_g}e_2/P_2$$
+$$\#_\blacksquare^{e_1}e/P_1 \mapsto \#_\blacksquare^{e_2}e/P_2 \qquad
+  \#_\blacksquare^{v_h}e_1/P_1 \mapsto \#_\blacksquare^{v_h}e_2/P_2$$
+
+We are finally ready to define program equivalence.
+We say that $e_1 \equiv e_2$ if and only if there is an $e'$ for which $e_1 \mapsto^* e'$ and $e_2 \mapsto^* e'$, where $\mapsto^*$ is the reflexive-transitive closure of $\mapsto$.
+
+Finally in this section, we will just gather the syntactic abbreviations we had defined in our stepwise development of $\lambda_{SFCC}$.
+First, there are a few additional ways of writing functions.
+$$\x_1,\ldots,x_n.e \equiv \x_1.\x_2\ldots\x_n.e$$
+$$\lambda\_.e \equiv \x.e \quad\textrm{ where }x \notin fv(e)$$
+$$\lambda().e \equiv \lambda\_.e \qquad
+  e\;() \equiv e\;v$$
+Then, we have sequencing and let-expressions.
+$$e_1; e_2 \equiv (\lambda\_.e_2)\;e_1$$
+$$\letin{x = e'}{e} \equiv (\x.e)\;e'$$
+$$\letin{x_1 = e_1; \ldots; x_n = e_n}{e} \equiv \letin{x_1 = e_1}{\ldots\letin{x_n = e_n}{e}}$$
+Since we will almost always write the $\F$ operator with an initially empty continuation, we have:
+$$\F_{e_p}e \equiv \F_{e_p}^{\square}e$$
+Finally, the extent guards for local control flow and for either local or non-local control flow area are not in the core grammar, since they are easily simulated.
+$$\#_\uparrow^{e_g}e \equiv e_g; e \qquad
+  \#_\downarrow^{e_g}e \equiv \letin{x=e}{e_g; x}$$
+$$\#_\upuparrows^{e_g}e \equiv \#_\uparrow^{e_g}\#_\Uparrow^{e_g}e \qquad
+  \#_\downdownarrows^{e_g}e \equiv \#_\downarrow^{e_g}\#_\Downarrow^{e_g}e$$
+
+
+
+
+
+\maybePage
 \section{Relationship to Existing Operators}
 
+\subsection{Preliminaries}
+Before delving into various operators, we will first want to define a few control operators of our own to help us along the way.
+
+Note that once the control operator $\F$ reaches its delimiter, values are passed to the control operator's body value.
+Often, the body will be ill-equipped to continue computation, and will simply pass control directly to the delimiter's handler.
+This we call \emph{abort} and write with the $\A$ operator:
+\begin{align*}
+\A_{e_p}e \equiv \letin{&x_p = e_p, x_v = e\\}%
+                       {&\F_{x_p}\lambda h,k. h\;k\;x_v}
+\end{align*}
+
+We will also want to agree on a few prompts beforehand.
+In several FCC structures, there is no notion of prompt, so for these we will introduce a default prompt, $\mathbf{p}$ for these structures to use.
+TODO $\mathbf{p_0}$
+We will introduce a few more as we go along, but each of them will be smaller in scope.
+Since we have written these in boldface, their appearance represents the prompt itself, rather than a name to which the prompt is bound; thus, we are able to ignore questions of variable capture.
+
+\maybePage
+\subsection{MFDC}
+
+Since we have already mentioned the major inspirations for the SFCC calculus, it only makes sense to begin our survey of relationships with those inspirations.
+The system $\pmFpm$ given in \textit{A Monadic Framework for Delimited Continuations}\cite{MFDC}, which we abbreviate MFDC, relies on an extension of the lambda calculus with a system of four operators.
+
+\begin{itemize}
+\item Their operator $\mathsf{newPrompt}$ creates a fresh prompt.
+\item Their delimiting operator is $\mathsf{pushPrompt}\;e_p\;e$.
+It takes a prompt an an expression, but it does not install a handler.
+\item Their control operator is $\mathsf{withSubCont}\;e_p\;e_h$.
+It evaluates its two arguments, a prompt and a function.
+It captures the appropriate continuation and passes it to the function.
+\item Finally, their $\mathsf{pushSubCont}\;e_k\;e$ takes a subcontinuation value and adds it to the control context before evaluating its body.
+\end{itemize}
+
+Two of these operators are directly reflected in our system, and a third is easily translated:
+\begin{align*}
+\mathsf{newPrompt} &\equiv \nu \\
+\mathsf{pushSubCont}\;e_k\;e &\equiv e_k\;e \\
+\mathsf{withSubCont} &\equiv
+    \lambda x_p,x_f. \F_{x_p}\lambda \_,k. x_f\;k \\
+\end{align*}
+The implementation of $\mathsf{withSubCont}$ does little more than arrange for the prompt-specified handler to be discarded during the call to the function.
+
+The fourth operator requires a design choice.
+We will implement an equivalence of the form $\mathsf{pushPrompt}\;e_p\;e \equiv \#_{e_p}^{v_?}e$, but the choice of $v_?$ is not fixed by the semantics of \cite{MFDC}.
+Two major options present themselves:
+either provide a simple value, not necessarily usable as a handler,
+or provide a handler which will continue to propagate the process of continuation capture when it is called.
+\begin{align*}
+\mathsf{pushPrompt}\;e_p\;e &\equiv \#_{e_p}^{()}e \\
+&\textrm{or} \\
+\mathsf{pushPrompt}\;e_p\;e &\equiv
+    \letin{p=e_p}\#_{p}^{\lambda k,x.\F_{p}^{k\;\square}x}e \\
+\end{align*}
+Neither option is sufficient to rule out crashes and unexpected behavior when the operators of MFDC are used in the SFCC calculus, but for the purposes of illustrating MFDC, the issue will never become important.
+In the interests of brevity we will simply choose the former.
+
+We will now examine an example from \cite{MFDC}.
+\begin{align*}
+&(\lambda p. 2 + \mathsf{pushPrompt}\;p \\
+&\qquad \mathsf{if}\;(\mathsf{withSubCont}\;p \\&\qquad\quad (\lambda k. (\mathsf{pushSubCont}\;k\;\mathbf{False}) +
+            (\mathsf{pushSubCont}\;k\;\mathbf{True}))) \\
+&\qquad \mathsf{then}\;3\;\mathsf{else}\;4) \\&\mathsf{newPrompt} \\
+\end{align*}
+This translates into the SFCC calculus as the following (we have taken the liberty of applying an $\eta$-conversion in the body of the $\F$):
+\begin{align*}
+&(\lambda p. 2 + \#_p^{()} \\
+&\qquad \mathsf{if}\;((\lambda x_p,x_f. \F_{x_p}\lambda \_.x_f)\;p \\&\qquad\quad \lambda k. (k\;\mathbf{False}) +
+            (k\;\mathbf{True})) \\
+&\qquad \mathsf{then}\;3\;\mathsf{else}\;4) \\&\nu \\
+\end{align*}
+
+First, the $\nu$ is evaluated to a fresh prompt---let's represent that with $\mathbf{a}$---which is then substituted into the body of the lambda.
+Another pair of $\beta$-reductions bring the expression to the point where we will need to begin continuation capture.
+\begin{align*}
+2 + \#_\mathbf{a}^{()} &\mathsf{if}\;(\F_\mathbf{a}\lambda \_,k. \\
+&\quad (k\;\mathbf{False}) + (k\;\mathbf{True}))\; \\
+&\mathsf{then}\;3\;\mathsf{else}\;4 \\
+\end{align*}
+
+Continuation capture terminates quickly, since there is a delimiter just one node away.
+The base-case reduction for continuation capture leads to the following, which reduces to $9$ by a few simple reductions:
+\begin{align*}
+& 2 +
+	(\lambda \_,k. (k\;\mathbf{False}) + (k\;\mathbf{True}))
+	\;()
+	\;\angles{\mathsf{if}\;\square\;\mathsf{then}\;3\;\mathsf{else}\;4} \\
+\mapsto{} & 2 +
+	(\angles{\mathsf{if}\;\square\;\mathsf{then}\;3\;\mathsf{else}\;4}\;\mathbf{False})
+	+ (\angles{\mathsf{if}\;\square\;\mathsf{then}\;3\;\mathsf{else}\;4}\;\mathbf{True}) \\
+\mapsto{} & 2 + (\mathsf{if}\;\mathbf{False}\;\mathsf{then}\;3\;\mathsf{else}\;4) + (\mathsf{if}\;\mathbf{True}\;\mathsf{then}\;3\;\mathsf{else}\;4) \\
+\mapsto{} & 2 + 4 + 3 \\
+\mapsto{} & 9
+\end{align*}
+
+
+\maybePage
+\subsection{fcontrol}
+
+The next inspiration we mention is fcontrol.
+Recall that fcontrol consists of the delimiting operator $\%$, and the control operator $\mathsf{fcontrol}$.
+The delimiting operator requires a body expressionand a handler, and the control operator requires only an abort value.
+Both operators may be equipped with a prompt, or allowed to use the default prompt.
+
+Implementations of these operators are given below.
+Since the semantics in \cite{HandlingControl} applies the handler to arguments in reverse order, we will make use here of the well-known function $\mathbf{flip} = \lambda f,x,y. f\;y\;x$.
+The following are faithful implementations of the operators defined in \cite{HandlingControl}:
+\begin{align*}
+\textbf{run-tagged} &\equiv \lambda p,f,h. \#_p^h f\;() \\
+\textbf{fcontrol-tagged} &\equiv \lambda p,x. \A_p x \\
+\textbf{run} &\equiv \textbf{run-tagged}\;\mathbf{p} \\
+\mathbf{fcontrol} &\equiv \textbf{fcontrol-tagged}\;\mathbf{p} \\
+\%\;e\;e_h &\equiv \textbf{run}\;(\lambda \_.e)\;e_h \\
+\end{align*}
+
+\maybePage
+\subsection{Scope Statements and Dynamic Wind}
+
+\begin{align*}
+\textsf{scope(exit)}\;e_g; e &\equiv \#_\downdownarrows^{e_g}e \\
+\textsf{scope(success)}\;e_g; e &\equiv \#_\downarrow^{e_g}e \\
+\textsf{scope(failure)}\;e_g; e &\equiv \#_\Downarrow^{e_g}e \\
+\textbf{dynamic-wind} &\equiv \lambda pre,body,post.
+    \#_\upuparrows^{pre\;()}\#_\downdownarrows^{post\;()}body\;() \\
+\end{align*}
+
+\maybePage
+\subsection{Try-catch-finally}
+
+
+We now move on to a demonstration that exception handling can be easily implemented within the SFCC calculus.
+This is the essence of our claim of the unification of exception handling and FCC.
+Since each language has their own idiosyncratic take on exception handling, we will illustrate a few systems, at which point the reader should be prepared to implement their favorite exception system.
+Although most languages offer try-catch constructs as statements, we will offer them as an expression so as not to complicate our grammar.
+
+We begin with the components of the system which remain constant for all the systems we will examine.
+We will need a prompt, which we will write $\mathbf{exn}$, specifically set aside for exceptions.
+The throw operator simply needs to abort up to the nearest exception handler, which we will implement with $\A$.
+The try-finally construct need only ensure that some code is executed no matter how control exits from a block, which is clearly implementable with $\#_\downdownarrows$.
+\begin{align*}
+\textsf{throw }e &\equiv \A_\textbf{exn}e \\
+\textsf{try }e\textsf{ finally }e_f &\equiv
+	\#_\downdownarrows^{e_f}e \\
+\end{align*}
+
+The first definition of try-catch is a particularly simple system, an untyped try-catch-finally, similar to that which appears in JavaScript.
+Here, the try-catch implementation need only install an exception handler, which in turn need worry only about the value aborted with (the exception itself), and may discard the continuation.
+\begin{align*}
+\textsf{try }e_{body}\textsf{ catch }x:e_h &\equiv
+	\#_\textbf{exn}^{\lambda \_,x.{e_h}}e_{body}
+	\\
+\end{align*}
+
+We can also include stack traces in our simulation, provided that the language implementation has some facility, $\mathbf{addTrace}$ that will add a stack trace to an exception value.
+We only need to change the handler to first add the trace before moving to the handler's body.
+$$\textsf{try }e_{body}\textsf{ catch }x:e_h \equiv
+	\#_\textbf{exn}^{\lambda k,a.{\letin{x=\mathbf{addTrace}\;k\;a}{e_h}}}e_{body}$$
+We need only make the restriction that $k,a \notin fv(e_f)$ so as to avoid inadvertent variable capture.
+Here again, the continuation value is not accessible to the user, so the implementation does not allow the continuation to be resumed.
+
+Our next refinement allows a catch block to trigger only on certain subtypes of an exception type.
+To do this, we will use the metavariable $\tau$ to represent an arbitrary type, and the expression $e\textsf{ instanceof }\tau$ to check at runtime whether the type of $e$ is a subtype of $\tau$.
+We can implement this using either of our prior untyped try-catch definitions.
+Now however, the handler first checks the type of before moving to the user's handling code.
+When the type is not suitable, then the exception is thrown again, so that the exception has another chance to be caught by an acceptable handler.
+\begin{align*}
+\textsf{try }e_{body}\textsf{ except }\tau\;x_1:e_1 \equiv{}
+	&\textsf{try}\;e_{body}\;\textsf{ except }x: \\
+	&\quad\textsf{if}\;x\textsf{ instaceof }\tau\\
+	&\qquad\textsf{then}\;e_h \\
+	&\qquad\textsf{else throw}\;x \\
+\end{align*}
+
+Finally, as a syntactic nicety, we allow for sequences of $\textsf{try}\ldots\textsf{try}$ to be compressed into a single \textsf{try} keyword.
+Thus, instead of writing
+$$\textsf{try try try }e_a\textsf{ catch }\tau_1\;x:e_b\textsf{ catch }\tau_2\;x:e_c\textsf{ finally }e_d$$
+we can simply write the more familiar
+$$\textsf{try }e_a\textsf{ catch }\tau_1\;x:e_b\textsf{ catch }\tau_2\;x:e_c\textsf{ finally }e_d$$
+which we now recognize as being equivalent to
+
+\begin{tabular}{l}
+$\#_\downdownarrows^{e_d}$ \\
+  $\quad\#_\mathbf{exn}^{\lambda \_,x.
+  	\textsf{if }x\textsf{ isinstance }\tau_2
+	\textsf{ then }e_c
+	\textsf{ else }\A_\mathbf{exn}x}$ \\
+  $\qquad\#_\mathbf{exn}^{\lambda \_,x.
+  	\textsf{if }x\textsf{ isinstance }\tau_1
+	\textsf{ then }e_b
+	\textsf{ else }\A_\mathbf{exn}x}$ \\
+  $\qquad\quad e_a$ \\
+\end{tabular}
+
+The apparatus we have now developed includes all the intuitions for how exception handling is supposed to work.
+If no exception is thrown, the catch blocks are not executed, but the finally block is.
+On the other hand, if an exception is thrown in a try block, the exception is matched against the catch clauses one-by-one in order.
+Once the appropriate catch block has executed, the finally clause then executes.
+If no catch block is suitable, then the exception continues to propagate to the next dynamically-enclosing try-catch block, but not before the finally block is executed.
+
+Exception handling was developed independently of both delimited control and formal methods, and so we did not expect the translation to be as small and straightforward as our prior definitions.
+Nevertheless, each translation we give is very small.
+More importantly, the translations operate on the source program in local sections rather performing a transformation on the program as a whole.
+This demonstration makes clear two important points.
+First, it shows that our system is capable of handling concepts broader than its own historical influences, and is therefore quite general.
+Second, as exception handling is present in nearly every production programing language, it shows that our system is capable of solving real-world issues that commonly appear in production programs.
 
 
 
+%\begin{figure}[H]
+%\caption{An Average Exception System}
+%\label{exceptionTranslation}
+%
+%\begin{tabular}{rcl}
+%$\textsf{throw}\;e$ & $\equiv$ &
+%\begin{tabular}{l}
+%	$\textsf{capture}[\textbf{exn}]\;\lambda trace.$ \\
+%	$\;\; \abort{\textbf{exn}}{\textbf{add-stack-trace}\;e\;trace}$ \\
+%\end{tabular}
+%\end{tabular}
+%
+%\vspace{1em}
+%
+%\begin{tabular}{rcl}
+%\begin{tabular}{l}
+%	$\textsf{try}\;e$ \\
+%	$\textsf{catch}(\sigma_1\;x_1)\;e_1$ \\
+%	$\ldots$ \\
+%	$\textsf{catch}(\sigma_n\;x_n)\;e_n$ \\
+%	$\textsf{finally}\;e_f$ \\
+%\end{tabular}	
+%& $\equiv$ &
+%\begin{tabular}{l}
+%	$\textsf{onExit}\;e_f;$ \\
+%	$\textsf{handle}[\textbf{exn}]\;(\lambda x.$ \\
+%	$\;\; \textsf{if}\;x\;\textsf{instanceof}\;\sigma_1$ \\
+%	$\;\;\;\; \textsf{then}\;\textsf{let}\;x_1=x\;\textsf{in}\;e_1$ \\
+%	$\;\; \ldots$ \\
+%	$\;\; \textsf{elif}\;x\;\textsf{instanceof}\;\sigma_n$ \\
+%	$\;\;\;\; \textsf{then}\;\textsf{let}\;x_n=x\;\textsf{in}\;e_n$ \\
+%	$\;\; \textsf{else}\;\textsf{throw}\;x$) \\
+%	$\textsf{in}\;e$ \\
+%\end{tabular}
+%\end{tabular}
+%
+%\end{figure}
 
 
+\maybePage
+\section{Design of a Source Language}
 
+%\maybePage
+\section{Efficient Implementation}
 
+%\maybePage
+\section{Applications}
 
+Inventory of control structures:
+\begin{itemize}
+\item\ [DONE] abort
+\item\ [DONE] fcontrol
+\item\ [DONE] MFDC
+\item\ [-] scope statements
+\item\ [-] dynamic-wind
+\item\ [.] try/catch/else/finally: typed and untyped, with/without stack trace; with/without rethrow
+%
+\item\ [ ] capture (without abort)
+\item\ [ ] cupto
+\item\ [ ] $\pmFpm$
+\item\ [ ] marker
+\item\ [ ] spawn
+\item\ [ ] call/cc
+\item\ [ ] context manager
+%
+\item\ [ ] panic
+\item\ [ ] labeled constructs
+\item\ [ ] conjunction
+\item\ [ ] anaphoric if
+\item\ [ ] fluid variables
+\item\ [ ] subroutines
+\item\ [ ] coroutines
+\item\ [ ] backtracking algorithms
+\item\ [ ] software transactions
+\item\ [ ] concurrent algorithms (cooperating threads)
+\end{itemize}
 
 
 \maybePage
@@ -1438,36 +1927,12 @@ NOTE: everything below is in an intermediate state, subject to dramatic change, 
 
 Outline:
 \begin{itemize}
-\item base lambda calculus and shorthands
-\item A calculus of FCC: first the use of continuation values, then newPrompt and F, then dynamic-extent guards, then barrier (note garbage collection of prompts).
-\item Basic shortcuts, like abort.
-\item Incestuous implementation of a few example FCC operators in my system  with example evaluation sketches.
 \item Implementation of throw/catch/finally, in various states of refinement.
-\item Nesting breakable loops, as a syntax extension, and as a simple lambda abstraction.
 \item Design choices for a source language: disallow anything other than $\square$ as $K$ in $\F$; always raise a stock exception when a barrier is tripped; a default handler for operators that do not normally specify handlers; only allow $\#_\upuparrows$ instead of independent $\#_\uparrow$ and $\#_\Uparrow$.
 \item Efficient implementation (the operational semantics).
 \item Library of control structures: everything in the review and plenty more besides.
 \end{itemize}
 
-Inventory of control structures:
-\begin{itemize}
-\item delimited control systems: abort, fcontrol, MFDC, cupto, $\pmFpm$, marker, spawn, capture (without abort)
-\item try/catch/else/finally: typed and untyped, with/without stack trace; with/without rethrow
-\item panic
-\item call/cc
-\item context manager
-\item dynamic extent protection: onEnter/Exit/Success/Failure, dynamic-wind
-\item looping constructs, esp. those with early exit
-\item conjunction
-\item anaphoric if
-\item fluid variables
-\item subroutines
-\item coroutines
-\item backtracking algorithms
-\item software transactions
-\item concurrent algorithms (cooperating threads)
-\item algorithm for the management of any resources
-\end{itemize}
 
 \section{Reformulation}
 
@@ -1477,81 +1942,11 @@ Essentially, either the control operator has enough information to move the comp
 This is our answer to choice (4) from the analysis of delimited continuations; its power comes from its ability to model both cases in a unified way.
 
 
-\begin{align*}
-e ::=&\ v \mid x \mid e\;e \mid \nu \mid \#^e_be \mid \mathcal{F}^K_ee \\
-b ::=&\ e \mid \Uparrow \mid {\downarrow} \mid {\Downarrow} \mid {\blacksquare} \\
-v ::=&\ \x.e \mid p \mid \angles K \\
-K ::=&\ \square \mid K\;e \mid v\;K \mid \#_K^ee \mid \#_p^Ke \mid \#_b^eK \mid \F^\square_Ke \mid \F_e^\square K\\
-\end{align*}
-
-When $e \to e'$, we mean $e\backslash P \to e' \backslash P$.
-We use $e_1; e_2$ to mean $(\x.e_2)\;e_1$ as usual, where $x \notin fv(e_2)$.
-%We'll also need another sequencing method: when we write $e_1 \lseq e_2$ (left-associative), we mean $(\x.e_1; x)e_2$ where $x \notin fv(e_1)$.
-
-Reductions:
-$$(\x.e)\;v \to [x \mapsto v]e$$
-$$\angles K\;e \to K[e]$$
-$$\nu \backslash P \to p \backslash \{p\} \cup P \qquad\textrm{where $p \notin P$}$$
-$$\#^e_\downarrow v \to e; v
-	\quad\textrm{or else}\quad
-  \#^e_bv \to v$$
-$$\#_p^{v_h}\F_p^Kv \to v\;v_h\;\angles K$$
-
-Collect continuation:
-$$(\F^K_pv)\;e_2 \to \F^{K\;e_2}_pv$$
-$$v_1\;\F^K_pv \to \F^{v_1\;K}_pv$$
-$$\#_{\F_p^Kv}^{e_h}e \to \F_p^{\#_K^{e_h}e}v$$
-$$\#^{\F_p^Kv}_{p'}e \to \F_p^{\#^K_{p'}e}v$$
-
-$$\#_{p'}^{v_h}\F^K_pv \to \F^{\#_{p'}^{v_h}K}_pv
-  	\quad\textrm{where }p \neq p'$$
-$$\#^e_\Uparrow\F^K_pv \to \F^{e;\#^e_\Uparrow K}_pv$$
-$$\#^e_\downarrow \F^K_pv \to \F^{\#^e_\downarrow K}_pv$$
-$$\#^e_\Downarrow \F^K_pv \to e;\F^{\#^e_\Downarrow K}_pv$$
-$$\#^e_\blacksquare\F^K_pv \to e$$
-$$\F^\square_{\F^K_pv}e \to \F^{\F^\square_Ke}_pv$$
-$$\F^\square_{p_1}\F^K_{p_2}v \to \F^{\F^\square_{p_1}K}_{p_2}v$$
-
-
-A program is as before, but with the additional restriction that any $\F$ operators must be of the form $\F^\square_{e_p}e$.
-You'll have to provide your own handler to do something when abort happens past a control guard. Otherwise, control \emph{can} by default escape.
-Also, that ``where $x \notin fv(e)$'' side condition applies to everything altering the superscript of an $\F$.
-Evaluation order is free in this system, but when primitive operations are added, we will need a restriction against performing $\delta$-reductions within a value (underneath an abstraction, or within a sub-continuation).
-
-I'm fairly certain that this system satisfies Church-Rosser, by a similar argument to that in Felleisen.
-It makes my wonder: is there an extension to this system (only of the reduction rules) that is also Church-Rosser?
-
-Basic syntactic sugar:
-\begin{align*}
-\F_{e_p}e &\equiv \F_{e_p}^\square e \\
-\mathcal A_{e_p}e &\equiv
-	\letin{x_v=e}{\F_{e_p}\lambda h,k.h\;k\;x_v}
-	\\
-\#_\uparrow^ee_{body} &\equiv
-	e; e_{body}
-	\\
-\#_\upuparrows^ee_{body} &\equiv
-	\#_\uparrow^e\#_\Uparrow^ee_{body}
-	\\
-\end{align*}
-
 Dynamic extent protection:
 \begin{align*}
-\textsf{onEnter }e; e_{body} &\equiv
-	\#_\uparrow^e\#_\upuparrows^ee_{body}
-	\\
 e_{body}\textsf{ finally }e &\equiv \\
 	\textsf{onExit }e; e_{body} &\equiv
 	\#_\downarrow^e\#_\Downarrow^ee_{body}
-	\\
-\textsf{onSuccess }e; e_{body} &\equiv
-	\#_\downarrow^ee_{body}
-	\\
-\textsf{onFailure }e; e_{body} &\equiv
-	\#_\Downarrow^ee_{body}
-	\\
-\textsf{dynamic-wind}^{e_{enter}}_{e_{exit}}e_{body} &\equiv
-	\textsf{onEnter }e_{enter}; \textsf{onExit }e_{exit}; e_{body}
 	\\
 \textsf{with }e_{cm}\textsf{ as }x\textsf{ in }e &\equiv
 	\letin{x_{cm}=e_{cm},x=x_{cm}.\_\_enter\_\_()}{\textsf{onExit }x_{cm}.\_\_exit\_\_(); e}
@@ -1560,38 +1955,11 @@ e_{body}\textsf{ finally }e &\equiv \\
 
 Exceptions:
 \begin{align*}
-\textsf{try }e_{body}\textsf{ except }x:e_h &\equiv
-	\#_\textbf{exn}^{\lambda k,x_v.\letin{x=\textbf{addTrace}\;x_v\;k}{e_h}}e_{body}
-	\\
-\textsf{throw }e &\equiv
-	\mathcal A_\textbf{exn}e
-	\\
-\textsf{try }e_{body}\textsf{ except }\tau\;x:e_h &\equiv
-	\textsf{try }e_{body}\textsf{ except }x:
-		\textsf{if }x\textsf{ instaceof }\tau
-		\textsf{ then }e_h
-		\textsf{ else throw }x
-	\\
 \textsf{panic }e &\equiv
 	\letin{x_{report} = e}{\F_\mathbf{p_0}\lambda \_,\_.x_{report}}
 	\\
 \end{align*}
 
-fcontrol:
-\begin{align*}
-\%_{e_p}\;e\;e_h &\equiv
-	\#_{e_p}^{\textbf{flip}\;e_h}e
-	\\
-\textsf{fcontrol}_{e_p}\;e &\equiv
-	\mathcal A_{e_p}e
-	\\
-\%\;e\;e_h &\equiv
-	\%_\mathbf{p}\;e\;e_h
-	\\
-\textsf{fcontrol}\;e &\equiv
-	\textsf{fcontrol}_\mathbf{p}\;e
-	\\
-\end{align*}
 
 cupto:
 \begin{align*}
@@ -1623,10 +1991,7 @@ $\pmFpm$:
 	\#e &\equiv
 	\#_\mathbf{p}e
 	\\
-^-\F^-e &\equiv {}^-\F^-_\mathbf{p}e \\
-^+\F^-e &\equiv {}^+\F^-_\mathbf{p}e \\
-^-\F^+e &\equiv {}^-\F^+_\mathbf{p}e \\
-^+\F^+e &\equiv {}^+\F^+_\mathbf{p}e \\
+\pmFpm e &\equiv {\pmFpm_\mathbf{p}}e \\
 \textsf{control }e &\equiv\\
 	\F e &\equiv
 	{}^+\F^-e
@@ -1634,18 +1999,6 @@ $\pmFpm$:
 \textsf{shift }x\;e &\equiv
 	{}^+\F^+\x.e
 	\\
-\end{align*}
-
-MFDC:
-\begin{align*}
-\textsf{newPrompt} &\equiv \nu \\
-\textsf{pushPrompt}\;e_p\;e &\equiv
-	\#_{e_p}e
-	\\
-\textsf{withSubCont}\;e_p\;e &\equiv
-	{}^-\F^-_{e_p}e
-	\\
-\textsf{pushSubCont}\;e_k\;e_v &\equiv e_k\;e_v \\
 \end{align*}
 
 Undelimited control:
@@ -1669,8 +2022,8 @@ Misc:
 \textsf{spawn }e &\equiv
 	\letin{f=e}{\textsf{marker }\x_p.f\;\angles{^-\F^+_{x_p}\square}}
 	\\
-\textsf{capture}_{e_p}\;e &\equiv
-	\letin{x_p=e_p}{\F_{x_p}\lambda h,k.\#_{x_p}^hk\;(e\;k)}
+\mathcal{C}_{e_p}e &\equiv
+	\letin{x_p=e_p, f=e}{\F_{x_p}\lambda h,k.\#_{x_p}^hk\;(f\;k)}
 \end{align*}
 
 
@@ -1683,6 +2036,11 @@ $$ e;\#_\Uparrow^e\F_{p'}v' \mapsto
 e;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto^*
 v;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto
 \F_{p'}^{e;\#_\Uparrow^e\square}v' $$
+
+
+
+
+
 
 
 
@@ -1942,7 +2300,7 @@ We say that $eval(e) = v$ when $\tuple{e:\blacksquare,c} \longmapsto^* \tuple{v:
 In all other cases, $eval(e)$ is undefined.
 Since there is only one applicable transition for each pair, the system is trivially confluent.
 
-\begin{figure}[h!]
+\begin{figure}[H]
 \caption{Dynamic Semantics}
 \label{dynamics}
 
@@ -2069,148 +2427,28 @@ TODO: Since we are using a transition system, it should be clear how to incorpor
 TODO: meta-continuatinos as in MFDC. I know there's some research in implementing continuations effectively in Racket (which I may have around here somewhere).
 
 
-\section{Relationship to Existing Operators and Constructs}
-\label{relationship}
 
-TODO note specifically systems that expose only a subset of the operators here. in particular: try/catch/finally + onControl forms; shift/reset/dynamic-wind; etc
-
-\subsection{Delimited Control Operators: $\pm\mathcal{F}\pm$}
-
-\begin{align*}
-\textbf{withCont} \equiv\ &\lambda x_cx. \capture{x_c}{\lambda hk. \abort{x_c}{(x\;h\;k)}}
-%\\
-%\textsf{cupto }e_p\textsf{ as }x_k\textsf{ in }e \equiv\ &
-%	\textbf{withCont}\;e_p\;\lambda x_k. e
-\end{align*}
-
-\begin{align*}
-\textsf{run}[e_c]\;e\;e_h \equiv\ &\handle{e_c}{e_h}{e} \\
-\textbf{fcontrol} \equiv\ &\lambda x_cx. \textbf{withCont}\;x_c\;(\lambda hk.h\;x\;k)
+%\section{Demonstration Language}
+%\label{sec:contoy}
+%In parallel with this thesis, we have developed a toy programming language called Contoy\footnote{Please excuse the awful portmanteau: I really don't care what the language is called, but we need to refer to it by \textit{something}.}.
+%The primary goal of Contoy is only to demonstrate the implementability and utility of the behavior of the system of control operators developed in this thesis.
+%It is not intended to demonstrate the utility of a rich type system, nor is it meant to be a language for production systems.
 %
-%\letin{x_c=e_c,x=e}{ \\
-%	& \withCont{x_c}{\lambda h,k. h\;x\;k}}
-\end{align*}
-
-Let $\#$ be a default cue provided by the runtime.
-\begin{align*}
-\textsf{reset }e \equiv\ &\handle{\#}{\lambda x. x}{e} \\
-^-\F^- x_k.e \equiv\ &\textbf{withCont}\;\#\;\lambda x_hx_k.e \\
-\end{align*}
-
-
-
-in MFDC, handlers are trivial, so it is easy to get an equivalent handler back given the prompt
-
-we can't get back an arbitrary handler, though. therefore, we'll need to carefully choose where we reinstate prompts, if we can do it at all for some of these. which F operators we can simulate from -F- may determine whether I prefer to take the handler on capture
-
-\subsection{Undelimited Control}
-
-\subsection{Dynamic Wind}
-
-TODO onExit, dynamic-wind, note that this also handles D-style scope statements
-
-\subsection{Exceptions}
-TODO: in addition to the standard-average-exceptions system, we should also have a simpler one, along the lines of javascript, in which there is only one kind of exception
-
-FIXME: rewrite to not worry about types
-
-FIXME: we'll need bounded quantification to really describe the types involved here, since we're doing subtyping
-
-
-We now move to one of the more complex common systems that can be defined with this thesis' control operators: exception handling.
-Exception handling was developed independently of delimited control\footnote{also, independently of formal methods.}, and so we should not expect the translation to be as small and straightforward as our prior definitions.
-Translating an exception system into our system is an important test for two reasons.
-First, it shows that our system is capable of handling concepts broader than its own historical influences, and is therefore very general.
-Second, as exception handling is present in nearly every production programing language, it shows that our system is capable of handling the real-world issues that appear in production programs.
-
-
-An average exception system offers an exception type, $\textbf{Exn}$, a cue, $\textbf{exn}$, of type $\forall\alpha.\Cue\;\textbf{Exn}\;\alpha$, the ability to throw exceptions, catch those exceptions which are a subtype of a given exception type, a finally construct, and a facility for obtaining stack traces, which are simply internal representations of a continuation that may be rendered to a string.
-Depending on the exact language, there may be variations.
-For example, Python has stack traces which can be introspected, and offers a catch-else construct, whereas C++ and Haskell do not offer stack traces at all.
-These variations are minor enough not to be interesting.
-Further, most languages offer try-catch-finally as a statement, but a few, such as Haskell and Go, offer it as an expression.
-We will develop our try-catch-finally definition as an expression, as it is the more general case.
-
-
-An average exception system has several builtin facilities, which we will now describe.
-We will require that there be an expression $e\;\textsf{instanceof}\;\sigma$ of type $\textbf{Bool}$ which evaluates to $\textbf{true}$ iff $e$ is of type $\sigma'$ and $\sigma'$ is a subtype of $\sigma$.
-We will require that there be a primitive function $\textbf{add-stack-trace}$ of type $\forall \sigma,\sigma'.\textbf{Exn}\to\Subcont\;\sigma\;\sigma'\to\textbf{Exn}$ which annotates the exception with a trace of the passed continuation, appending to any existing trace.
-Finally, we require a primitive procedure $\textbf{print-stack-trace}$ of type $\textbf{Exn}\to()$ which prints the passed exception as a human-readable string.
-The user may or may not have access to $\textbf{add-stack-trace}$ and $\textbf{print-stack-trace}$.
-
-We may now define the syntax of a common exception system and its translation into the control operators we have so far defined.
-Figure~\ref{exceptionTranslation} gives two new expression syntaxes, \textsf{throw} and \textsf{try}-\textsf{catch}-\textsf{finally}.
-In \textsf{try}-\textsf{catch}-\textsf{finally}, there may be zero catch-clauses and the finally-clause may be omitted (with appropriate omissions in the translation).
-Note that the metavariables $trace$ and $x$ should be fresh to avoid awkward scoping issues.
-
-FIXME define onExit beforehand
-
-\begin{figure}
-\caption{An Average Exception System}
-\label{exceptionTranslation}
-
-\begin{tabular}{rcl}
-$\textsf{throw}\;e$ & $\equiv$ &
-\begin{tabular}{l}
-	$\textsf{capture}[\textbf{exn}]\;\lambda trace.$ \\
-	$\;\; \abort{\textbf{exn}}{\textbf{add-stack-trace}\;e\;trace}$ \\
-\end{tabular}
-\end{tabular}
-
-\vspace{1em}
-
-\begin{tabular}{rcl}
-\begin{tabular}{l}
-	$\textsf{try}\;e$ \\
-	$\textsf{catch}(\sigma_1\;x_1)\;e_1$ \\
-	$\ldots$ \\
-	$\textsf{catch}(\sigma_n\;x_n)\;e_n$ \\
-	$\textsf{finally}\;e_f$ \\
-\end{tabular}	
-& $\equiv$ &
-\begin{tabular}{l}
-	$\textsf{onExit}\;e_f;$ \\
-	$\textsf{handle}[\textbf{exn}]\;(\lambda x.$ \\
-	$\;\; \textsf{if}\;x\;\textsf{instanceof}\;\sigma_1$ \\
-	$\;\;\;\; \textsf{then}\;\textsf{let}\;x_1=x\;\textsf{in}\;e_1$ \\
-	$\;\; \ldots$ \\
-	$\;\; \textsf{elif}\;x\;\textsf{instanceof}\;\sigma_n$ \\
-	$\;\;\;\; \textsf{then}\;\textsf{let}\;x_n=x\;\textsf{in}\;e_n$ \\
-	$\;\; \textsf{else}\;\textsf{throw}\;x$) \\
-	$\textsf{in}\;e$ \\
-\end{tabular}
-\end{tabular}
-
-\end{figure}
-
-Finally, the runtime system must be able to cope with unhandled exceptions.
-For this, we translate a source program $e$ into $\textsf{try}\;e\;\textsf{catch}(\textbf{Exn}\;x)\;(\textbf{print-stack-trace}\;x;\textbf{terminate})$ before execution.
-
-
-TODO it'd be nice to show an abstract try-muticatch-else-finally function where handler determination is pure
-
-
-\section{Demonstration Language}
-\label{sec:contoy}
-In parallel with this thesis, we have developed a toy programming language called Contoy\footnote{Please excuse the awful portmanteau: I really don't care what the language is called, but we need to refer to it by \textit{something}.}.
-The primary goal of Contoy is only to demonstrate the implementability and utility of the behavior of the system of control operators developed in this thesis.
-It is not intended to demonstrate the utility of a rich type system, nor is it meant to be a language for production systems.
-
-Contoy belongs to the Lisp family of languages, and as such is a dynamically-typed functional programming language.
-It uses prefix notation and parenthesis signal function call\footnote{Strictly, a combination. Usually combinations are function calls, but some combinations involve special forms. Special forms interpret the parenthetical structure of its arguments differently, and often do not not evaluate all arguments immediately.} rather than simple grouping disambiguation.
-There are several differences from common Lisps.
-First, there is a focus on immutable rather than mutable data; mutable data must be explicitly placed within explicitly obtained reference cells.
-Second, there is no macro facility; for syntactic abstraction, we have implemented functions which take their arguments lazily.
-Assuming the reader is familiar with a Lisp descendant, a few examples should be able to demonstrate the unique features of Contoy besides the control operators.
-
-TODO: examples of Contoy code
-
-
-Though \textbf{onUnwind} and \textbf{onAbort} provide an implicit begin, we cannot do this for our \textbf{onExit} definition.
-As such, Contoy also has an \textbf{onExit} special form equivalent to our definition.
-Furthermore, we have decided to implement the \textbf{onExit} behavior directly rather than simulating it.
-Just because something \emph{can} be simulated does not mean it \emph{should} be.
-We expect \textbf{onExit} to be used often, so there is no reason to require extra computing resources to execute it.
+%Contoy belongs to the Lisp family of languages, and as such is a dynamically-typed functional programming language.
+%It uses prefix notation and parenthesis signal function call\footnote{Strictly, a combination. Usually combinations are function calls, but some combinations involve special forms. Special forms interpret the parenthetical structure of its arguments differently, and often do not not evaluate all arguments immediately.} rather than simple grouping disambiguation.
+%There are several differences from common Lisps.
+%First, there is a focus on immutable rather than mutable data; mutable data must be explicitly placed within explicitly obtained reference cells.
+%Second, there is no macro facility; for syntactic abstraction, we have implemented functions which take their arguments lazily.
+%Assuming the reader is familiar with a Lisp descendant, a few examples should be able to demonstrate the unique features of Contoy besides the control operators.
+%
+%TODO: examples of Contoy code
+%
+%
+%Though \textbf{onUnwind} and \textbf{onAbort} provide an implicit begin, we cannot do this for our \textbf{onExit} definition.
+%As such, Contoy also has an \textbf{onExit} special form equivalent to our definition.
+%Furthermore, we have decided to implement the \textbf{onExit} behavior directly rather than simulating it.
+%Just because something \emph{can} be simulated does not mean it \emph{should} be.
+%We expect \textbf{onExit} to be used often, so there is no reason to require extra computing resources to execute it.
 
 
 
@@ -2220,7 +2458,7 @@ We expect \textbf{onExit} to be used often, so there is no reason to require ext
 
 TODO pick an example that actually uses capture, though I want to keep some of this analysis
 
-\begin{figure}
+\begin{figure}[H]
 \caption{Accumulation-loop pattern codified}
 \label{fig:foldl/ee}
 
@@ -2324,13 +2562,6 @@ itis is lambda it :
 In languages where if statements are able to test many data types---Lisp, C and Python, among others---a common pattern is to 
 
 
-\subsection{Context Managers}
-
-by formally defining a context manager in the terms above, we explicitly show how our system can abstract patterns of control
-
-
-\subsection{Fluid Variables}
-With fluid variables and a notion of procedure, we can define Go-style defer statements.
 
 \subsection{Subroutines}
 
@@ -2344,17 +2575,10 @@ $\textsf{return}\;e \equiv \abort{\textbf{call-frame}}{e}$
 %this subroutine one really puts the question to where how polymorphic cues can be. This subroutine one looks like it can't be used to return a value of concrete type, because the type of the cue is abstract. I'm really not sure how I can make a single cue useful in many type contexts. For subroutines it's not a big deal: create a new prompt for each subroutine defined (that might make more sense, anyway), but for exceptions, it's a big problem.
 
 
-\subsection{Coroutines}
-
-
-
-\subsection{Generalized Resource Management}
 \subsection{Software Transactions}
 
 transactions recur, apparently: they're in pep 343 as well as D
 
-\subsection{Backtracking Algorithms}
-\subsection{Concurrent Algorithms}
 
 \section{Related Work}
 

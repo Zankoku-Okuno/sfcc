@@ -1412,6 +1412,7 @@ $$\F_{e_p}e \equiv \F_{e_p}^{\square}e$$
 
 \maybePage
 \subsection{Extent Guards}
+\label{subsec:extentGuards}
 
 Having now introduced control operators, we turn to the other main part of the system---the operators which can ensure correct setup and cleanup of resources.
 These we call extent guards, because they register expressions which are then executed when control enters/exits the dynamic extent of the guard.
@@ -1648,8 +1649,9 @@ This we call \emph{abort} and write with the $\A$ operator:
 
 We will also want to agree on a few prompts beforehand.
 In several FCC structures, there is no notion of prompt, so for these we will introduce a default prompt, $\mathbf{p}$ for these structures to use.
-TODO $\mathbf{p_0}$
-We will introduce a few more as we go along, but each of them will be smaller in scope.
+We will also want a prompt $\mathbf{p_0}$ that is only meant to be installed at the top of the program, usually by the run-time system.
+Such a prompt will allow us to implement control structures that do capture or discard the entire continuation.
+We will introduce a few more prompts as we go along, but each of them will be smaller in scope.
 Since we have written these in boldface, their appearance represents the prompt itself, rather than a name to which the prompt is bound; thus, we are able to ignore questions of variable capture.
 
 \maybePage
@@ -1752,13 +1754,31 @@ The following are faithful implementations of the operators defined in \cite{Han
 \maybePage
 \subsection{Scope Statements and Dynamic Wind}
 
+We will cover our last two inspirations together.
+The implementations here justify our description of extent guards in \ref{subsec:extentGuards}.
+
+We mentioned that extent guards are a generalization of scope statements, where now execution on entrance is made available alongside execution on exit.
+Here, we see that the three scope statements correspond to our three extent exit operators.
 \begin{align*}
 \textsf{scope(exit)}\;e_g; e &\equiv \#_\downdownarrows^{e_g}e \\
 \textsf{scope(success)}\;e_g; e &\equiv \#_\downarrow^{e_g}e \\
 \textsf{scope(failure)}\;e_g; e &\equiv \#_\Downarrow^{e_g}e \\
+\end{align*}
+Of course, the SFCC calculus also has three extent entrance operators which operate symmetrically.
+
+We also mentioned that our extent guards split the dynamic wind operator into its component parts.
+In Scheme, dynamic-wind a function which takes three zero-argument functions, rather than being a special form taking three subexpressions; this is the reason for the enclosing lambda in our implementation.
+We see that all six extent guards are involved in dynamic wind:
+the $\#_\downdownarrows$ and $\#_\upuparrows$ provide the most concise implementation, but recall that these can be expressed in terms of $\#_\downarrow, \#_\Downarrow$ and $\#_\uparrow, \#_\Uparrow$ respectively.
+\begin{align*}
 \textbf{dynamic-wind} &\equiv \lambda pre,body,post.
     \#_\upuparrows^{pre\;()}\#_\downdownarrows^{post\;()}body\;() \\
+  &\equiv \lambda pre,body,post.
+    \#_\uparrow^{pre\;()}\#_\Uparrow^{pre\;()}
+    \#_\downarrow^{post\;()}\#_\Downarrow^{post\;()}
+    body\;()
 \end{align*}
+
 
 \maybePage
 \subsection{Try-catch-finally}
@@ -1884,8 +1904,11 @@ Second, as exception handling is present in nearly every production programing l
 \maybePage
 \section{Design of a Source Language}
 
+disallow anything other than $\square$ as $K$ in $\F$; always raise a stock exception when a barrier is tripped; a default handler for operators that do not normally specify handlers; only allow $\#_\upuparrows$ instead of independent $\#_\uparrow$ and $\#_\Uparrow$.
+
 %\maybePage
 \section{Efficient Implementation}
+(give our previous operational semantics)
 
 %\maybePage
 \section{Applications}
@@ -1895,9 +1918,9 @@ Inventory of control structures:
 \item\ [DONE] abort
 \item\ [DONE] fcontrol
 \item\ [DONE] MFDC
-\item\ [-] scope statements
-\item\ [-] dynamic-wind
-\item\ [.] try/catch/else/finally: typed and untyped, with/without stack trace; with/without rethrow
+\item\ [DONE] scope statements
+\item\ [DONE] dynamic-wind
+\item\ [DONE] try/catch/else/finally: typed and untyped, with/without stack trace; with/without rethrow
 %
 \item\ [ ] capture (without abort)
 \item\ [ ] cupto
@@ -1905,12 +1928,12 @@ Inventory of control structures:
 \item\ [ ] marker
 \item\ [ ] spawn
 \item\ [ ] call/cc
-\item\ [ ] context manager
 %
+\item\ [ ] context manager
 \item\ [ ] panic
 \item\ [ ] labeled constructs
-\item\ [ ] conjunction
-\item\ [ ] anaphoric if
+\item\ [.] conjunction
+\item\ [.] anaphoric if
 \item\ [ ] fluid variables
 \item\ [ ] subroutines
 \item\ [ ] coroutines
@@ -1920,18 +1943,14 @@ Inventory of control structures:
 \end{itemize}
 
 
-\maybePage
+\subsection{Natural Language Constructs}
+anaphoric if, conjunction
 
+\maybePage
+\part{Here There Be Dragons}
 
 NOTE: everything below is in an intermediate state, subject to dramatic change, and probably deletion.
 
-Outline:
-\begin{itemize}
-\item Implementation of throw/catch/finally, in various states of refinement.
-\item Design choices for a source language: disallow anything other than $\square$ as $K$ in $\F$; always raise a stock exception when a barrier is tripped; a default handler for operators that do not normally specify handlers; only allow $\#_\upuparrows$ instead of independent $\#_\uparrow$ and $\#_\Uparrow$.
-\item Efficient implementation (the operational semantics).
-\item Library of control structures: everything in the review and plenty more besides.
-\end{itemize}
 
 
 \section{Reformulation}
@@ -1944,10 +1963,6 @@ This is our answer to choice (4) from the analysis of delimited continuations; i
 
 Dynamic extent protection:
 \begin{align*}
-e_{body}\textsf{ finally }e &\equiv \\
-	\textsf{onExit }e; e_{body} &\equiv
-	\#_\downarrow^e\#_\Downarrow^ee_{body}
-	\\
 \textsf{with }e_{cm}\textsf{ as }x\textsf{ in }e &\equiv
 	\letin{x_{cm}=e_{cm},x=x_{cm}.\_\_enter\_\_()}{\textsf{onExit }x_{cm}.\_\_exit\_\_(); e}
 	\\
@@ -2036,6 +2051,17 @@ $$ e;\#_\Uparrow^e\F_{p'}v' \mapsto
 e;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto^*
 v;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto
 \F_{p'}^{e;\#_\Uparrow^e\square}v' $$
+
+
+
+
+
+
+
+
+
+
+
 
 
 

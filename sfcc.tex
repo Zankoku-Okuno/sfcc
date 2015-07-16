@@ -279,34 +279,20 @@ We will not argue that we have the unique best possible solution, but our system
 \maybePage
 \subsection{Our System}
 
-TODO I won't elaborate this section until I'm sure I've got the right formulation.
+In our thesis, we develop $\lambda_{SFCC}$, a lambda calculus augmented with operators for both first-class control and the secure handling of resources.
+Our key insight was that although existing FCC systems are able to effect non-local control flow, they lack the ability to intercept non-local control flow.
+We work out the details of $\lambda_{SFCC}$ by referring to existing literature with a view to encompass as many mechanisms as is reasonably possible.
 
-What are the advantages of our system?
-It is formally specified.
-It allows for static typing (for which we give natural deduction axioms).
-It unifies a wide range of control operators (all major ones) already deployed.
-It provides for deterministic resource initialization and cleanup, even in the presence of arbitrarily complex non-local control.
-Efficient implementation techniques are known for similar systems or subsystems.
-It is somewhat modular, allowing language designers to pick and choose subsets appropriate for their goals rather than start from scratch (esp. without theorems).
+The main advantage of $\lambda_{SFCC}$ is that it provides for deterministic resource initialization and cleanup, even in the presence of arbitrarily complex non-local control flow.
+Beyond that, it turns out that $\lambda_{SFCC}$ can implement all major control operators without difficulty.
+Compared with exception handling systems, an important advantage of $\lambda_{SFCC}$ is that it is formally specified.
+Since $\lambda_{SFCC}$ is capable of implementing various exception handling mechanism, we immediately gain a formal specification of these control structures.
 
-How does it relate to other systems?
-We split the primitives up roughly along the same lines as MFDC.
-However, we extend MFDC along the lines of fcontrol: delimiters include a handler, rather than force the control operator to provide one.
-The control operator is intimately connected with throw, since it only takes a value; thus, exception handling can be implemented entirely in terms of a stock delimiter.
-So far as we know, there is no formal system concerning the control guards we develop, though we are inspired by D's scope statemetns and Scheme's dynamic-wind. 
-
-FIXME: these next two paragraphs are highly related; they need to be reviewed against each other.
-
-Note however, that to achieve practicality, type systems applicable to this system likely must make a small compromise in their soundness: this is the same compromise that exists in unchecked exception systems.
+Thanks to our system's similarities to \cite{Gunter:1995} and \cite{MFDC}, we expect a practical type system to be able to rule out several classes of error related to the use of FCC.
+Note that to achieve practicality, type systems of this sort must make a small compromise in their soundness: this is the same compromise that exists in unchecked exception systems.
 We do not believe this to be a cause for concern, since unchecked exceptions are already widely used in production.
-Further, it is this author's opinion that without a focus on lexical scoping and immutable values, our system -- perhaps any FCC system -- has the potential to introduce incidental complexity which can hinder maintenance and performance.
-We refer the reader to Stroustrop's discussion\cite{evolutionCplusplus} of the complex exception system in Mesa.
-%The combination of FCC with unrestricted mutable state is probably always a design error.
-
-Thanks to our system's similarities to (TODO generalizing exceptions in ML) and \cite{MFDC}, we expect a practical type system to be able to rule out several classes of error related to the use of FCC.
 Nevertheless, alternate type systems are certainly possible, each making different trade-offs regarding soundness vs. ease of use.
-In this paper, we focus only on the dynamic semantics of FCC, leaving a static semantics to further research.
-
+In this paper, we focus only on the dynamic semantics of FCC, leaving a static semantics to further research and the preferences of language designers.
 
 \maybePage
 \subsection{Structure of this Paper}

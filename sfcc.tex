@@ -2398,7 +2398,46 @@ Scope rules ensure that \texttt{it} is available inside both the consequent, $e_
 \end{align*}
 
 TODO conjunction
+Another common natural language construct is the distribution of a predicate over several objects, as in ``is $x$ equal to 3 or 4?'' and ``are both $x$ and $y$ positive?''.
+This construction can become useful when programming;
+indeed, a common Python idiom uses set inclusion to implement the former: \texttt{if x in \{3, 4\}}.
+Unfortunately, set membership is only one instance of the pattern we find here.
 
+In \cite{ContInNatlang} however, the author suggests that a natural interpretation of these constructs is in terms of continuations.
+
+In this implementation, we will use a preselected prompt, which we will write as $\textbf c$ here.
+In addition to the two infix conjunctions \textbf{and} and \textbf{or}, we will also require a suitable bracketing operator, \textbf{conj}, which delimits the predicate being tested.
+\begin{align*}
+\textbf{conj} &\equiv \angles{\#_\textbf{c}\square} \\
+\textbf{and} &\equiv \x,y. {}^+\F^-_\textbf{c}\lambda \_, k.\,k\;x\;\&\&\;k\;y \\
+\textbf{or} &\equiv \x,y. {}^+\F^-_\textbf{c}\lambda \_, k.\,k\;x\;||\;k\;y \\
+\end{align*}
+Of course, additional conjunctions might be implemented; we have limited ourselves to these two fro brevity.
+
+Now that we have the definitions, we will give a short reduction sketch.
+\begin{align*}
+&\textbf{conj}\;(0 == 1\textbf{ or }2\textbf{ or }0) \\
+\equiv{}\;\;& \#_\textbf c 0 ==
+	(\x,y.{}^+\F^-_\textbf{c}\lambda \_, k.\,k\;x\;||\;k\;y)
+		\;((\x,y.{}^+\F^-_\textbf{c}\lambda \_, k.\,k\;x\;||\;k\;y)
+			\;1\;2)
+		\;0 \\
+%
+\mapsto^*{}& \#_\textbf c 0 == {}^+\F^-_\textbf{c}\lambda \_, k.\,k\;((\x,y.{}^+\F^-_\textbf{c}\lambda \_, k.\,k\;x\;||\;k\;y)
+			\;1\;2)\;||\;k\;0\\
+%
+\mapsto^*{}& \angles{0==\square}\;((\x,y.{}^+\F^-_\textbf{c}\lambda \_, k.\,k\;x\;||\;k\;y)
+			\;1\;2)\;||\;\angles{0==\square}\;0\\
+%
+\mapsto^*{}& 0==({}^+\F^-_\textbf{c}\lambda \_, k.\,k\;1\;||\;k\;2)
+			\;||\;\angles{0==\square}\;0\\
+%
+\mapsto^*{}& \angles{0==\square}\;1\;||\;\angles{0==\square}\;2
+			\;||\;\angles{0==\square}\;0\\
+\equiv{}\;\;& 0==1\;||\;0==2\;||\;0==0\\
+%
+\mapsto^*{}& \textbf{true}
+\end{align*}
 
 \maybePage
 \section{Conclusion}

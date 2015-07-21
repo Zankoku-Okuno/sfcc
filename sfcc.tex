@@ -130,7 +130,7 @@ The main contribution of this paper is a dynamic semantics which:
 \end{itemize}
 %The main contribution of this paper is a unification of exceptions, continuations, and several other control structures, thereby offering first-class control more powerful than exception systems, while also no more dangerous.
 In the process, we review the non-local control flow techniques already implemented in production programming languages
-We also implement our system to illustrate several applications of our system of FCC.
+We also use our system to implement several constructs and illustrate several applications of our system of FCC.
 We further point to several additional variations, laying the foundation for discussion to determine the ideal primitives for FCC.
 
 \maybePage
@@ -178,7 +178,7 @@ First-class control is thus a natural extension of existing high-level languages
 
 As a simple example, a common pattern is an accumulation loop with early-exit.
 We can use FCC to efficiently implement this pattern and reuse it without difficulty, as in Figure~\ref{fig:ex-foldl/ee}.
-We will give further analysis in \S\ref{sec:foldl/ee} after we have developed our system of first-class control.
+We will give further analysis in \S\ref{subsec:earlyExit} after we have developed our system of first-class control.
 
 \begin{figure}[H]
 \caption{Define the accumulation loop with early exit}
@@ -317,10 +317,10 @@ In \S\ref{undelimControl} and \S\ref{delimControl} we examine a variety of first
 In \S\ref{dynamic-wind} we explain Scheme's dynamic-wind construct for managing resources under FCC.
 A broad analysis of these constructs' capabilities, including advantages and disadvantages, is given in \S\ref{sec:review}.
 
-In Part Two, we apply the lessons learned in Part One to design the SFCC calculus, a novel system of first-class control which is also capable of managing external resources with the same ease as in existing languages.
+In Part Two, we apply the lessons learned in Part One to design $\lambda_{SFCC}$, a novel system of first-class control which is also capable of managing external resources with the same ease as in existing languages.
 We describe the system in \S\ref{sec:SFCCcalculus};
 the whole system is fairly large, but can be split into a few small components, each of which we detail in a subsection there, along with the system as a whole in \S\ref{subsec:summarySFCCcalculus}.
-Then, in \S\ref{sec:relationship}, we analyze our system in relation to its influences.
+Then, in \S\ref{sec:relationship}, we analyze $\lambda_{SFCC}$ in relation to its influences.
 We also examine its relationship to exception handling (\S\ref{subsec:implExn}) and a few other important FCC systems (\S\ref{subsec:implMisc}).
 In \S\ref{sec:efficientImpl}, we give an alternate formulation of the calculus in terms of a transition system, which can be directly translated into an efficient interpreter (constant overheads aside).
 Finally, we examine a wide range of applications of FCC in \S\ref{sec:applications}, underscoring the effectiveness of FCC as an implementation technique.
@@ -937,7 +937,7 @@ Although our purpose in this section was only to build some intuition, the reade
 In particular, shift-reset does not lend itself well to modularity, nor have we developed a significant example demonstrating the power of FCC beyond exceptions.
 The FCC introduced here was particularly simple flavor, though it has seen implementation in a production language.
 In the following sections, we will examine several flavors of FCC in more depth.
-Once we have developed our system of FCC, then we will return to more significant examples of use.
+Once we have developed $\lambda_{SFCC}$, then we will return to more significant examples of use.
 
 
 \maybePage
@@ -975,8 +975,7 @@ From a software engineering perspective, then, we must avoid undelimited control
 One difficulty of describing FCC is that there are so many different variants in the literature.
 We will consider here three broad groups of delimited control operators.
 In the following, we will often make reference to academic literature;
-lest the reader think we have abandoned our focus on production programming languages, note that all of these operators have been implemented in Racket \cite{RacketReference}. 
-(TODO how much are these implemented in SCheme and ML?)
+lest the reader think we have abandoned our focus on production programming languages, note that all of these operators have been implemented in Racket \cite{RacketReference}.
 In fact, every delimited control operator in Racket is either presented here directly, or else can be easily simulated\footnote{TODO: I should find out if they are in fact simulated}.
 
 In what follows, we will see that Racket implements a veritable zoo of control operators.
@@ -1073,7 +1072,7 @@ Dynamic-wind is a form which takes three blocks\footnote{Technically, it takes t
 Control then attempts to enter the body-block, but whenever the body is entered, whether initially or because it is placed back onto the stack, the before-block is executed first.
 Furthermore, no matter how control exits the body, the after-block will be evaluated.
 
-%TODO where multiple prompts alone cannot guarantee setup or cleanup when a dynamic extent is entered/exited, the addition of dynamic-wind gives us this capability
+TODO where multiple prompts alone cannot guarantee setup or cleanup when a dynamic extent is entered/exited, the addition of dynamic-wind gives us this capability
 
 It should be clear then, that try-finally is a limit case of dynamic-wind, where the before-block is empty.
 Conversely, dynamic-wind generalized try-finally by not only allowing code to be registered for execution on exit, but also on entrance.
@@ -1172,9 +1171,9 @@ MEMOS:
 \maybePage
 \part{Thesis}
 
-Our thesis begins with the presentation of an extended lambda calculus designed for secure first-class control, which we call the SFCC calculus or $\lambda_{SFCC}$.
+Our thesis begins with the presentation of an extended lambda calculus designed for secure first-class control, which we call $\lambda_{SFCC}$.
 We then briefly examine its relationship to a few important existing control structures.
-Next, we present an operational semantics for our system in the form of an interpreter, and note additional efficiencies that may be garnered with an implementation.
+Next, we present an operational semantics for $\lambda_{SFCC}$ in the form of an interpreter, and note additional efficiencies that may be garnered with an implementation.
 Finally, we examine a wide range of control structures, both mundane and advanced, and show implementations of these in our calculus.
 
 As in most discussions of formal semantics, we will be working simultaneously with syntax, semantics and metasyntax. To be unambiguous, we will typeset each level differently. Metasyntax will be in \textit{italics}, semantic objects will be written in \textbf{boldface}, and syntax will be written either in \textsf{sans-serif} for keywords or in \texttt{typewriter} for variable names.
@@ -1198,7 +1197,7 @@ Essentially, either the control operator has enough information to move the comp
 For the management of resources, the key insight is that there are only four forms of control flow, each of a distinct character: entrance vs. exit and local vs. non-local.
 Thus, all we need to do is to execute an additional expression (the setup or clean up code) whenever control moves past a guard.
 
-We will present the concepts of the SFCC calculus in stages, each building on the last.
+We will present the concepts of $\lambda_{SFCC}$ in stages, each building on the last.
 We have taken care so that the presentation of each system will remain valid we extend it with additional concepts.
 When we have developed SFCC in full, we give the system as a whole, so that readers may skip over the intermediate stages of development.
 Our system was developed independently of the requirements summarized in \S\ref{sec:review}, but we will show that it does meet those standards.
@@ -1622,7 +1621,7 @@ These constructs, and those we will develop in the rest of this section will be 
 \maybePage
 \subsection{MFDC}
 
-Since we have already mentioned the major inspirations for the SFCC calculus, it only makes sense to begin our survey of relationships with those inspirations.
+Since we have already mentioned the major inspirations for $\lambda_{SFCC}$, it only makes sense to begin our survey of relationships with those inspirations.
 The system $\pmFpm$ given in \textit{A Monadic Framework for Delimited Continuations}\cite{MFDC}, which we abbreviate MFDC, relies on an extension of the lambda calculus with a system of four operators.
 
 \begin{itemize}
@@ -1635,7 +1634,7 @@ It captures the appropriate continuation and passes it to the function.
 \item Finally, their $\mathsf{pushSubCont}\;e_k\;e$ takes a subcontinuation value and adds it to the control stack before evaluating its body.
 \end{itemize}
 
-Two of these operators are directly reflected in our system, and a third is easily translated:
+Two of these operators are directly reflected in $\lambda_{SFCC}$, and a third is easily translated:
 \begin{align*}
 \mathsf{newPrompt} &\equiv \nu \\
 \mathsf{pushSubCont}\;e_k\;e &\equiv e_k\;e \\
@@ -1656,7 +1655,7 @@ or provide a handler which will continue to propagate the process of continuatio
     \letin{p=e_p}\#_{p}^{\lambda k,x.\F_{p}\lambda h',k'.h'\;(k' \circ k)\;x}e \\
 %    \letin{p=e_p}\#_{p}^{\lambda k,x.\F_{p}^{k\;\square}x}e \\
 \end{align*}
-Neither option is sufficient to rule out crashes and unexpected behavior when the operators of MFDC are used in the SFCC calculus, but for the purposes of illustrating MFDC, the issue will never become important.
+Neither option is sufficient to rule out crashes and unexpected behavior when the operators of MFDC are used in $\lambda_{SFCC}$, but for the purposes of illustrating MFDC, the issue will never become important.
 In the interests of brevity we will simply choose the former in our example reductions.
 
 We will now examine an example from \cite{MFDC}.
@@ -1666,7 +1665,7 @@ We will now examine an example from \cite{MFDC}.
             (\mathsf{pushSubCont}\;k\;\mathbf{True}))) \\
 &\qquad \mathsf{then}\;3\;\mathsf{else}\;4) \\&\mathsf{newPrompt} \\
 \end{align*}
-This translates into the SFCC calculus as the following (we have taken the liberty of applying an $\eta$-conversion in the body of the $\F$):
+This translates into $\lambda_{SFCC}$ as the following (we have taken the liberty of applying an $\eta$-conversion in the body of the $\F$):
 \begin{align*}
 &(\lambda p. 2 + \#_p^{()} \\
 &\qquad \mathsf{if}\;((\lambda x_p,x_f. \F_{x_p}\lambda \_.x_f)\;p \\&\qquad\quad \lambda k. (k\;\mathbf{False}) +
@@ -1730,7 +1729,7 @@ Here, we see that the three scope statements correspond to our three extent exit
 \textsf{scope(success)}\;e_g; e &\equiv \#_\downarrow^{e_g}e \\
 \textsf{scope(failure)}\;e_g; e &\equiv \#_\Downarrow^{e_g}e \\
 \end{align*}
-Of course, the SFCC calculus also has three extent entrance operators which operate symmetrically.
+Of course, $\lambda_{SFCC}$ also has three extent entrance operators which operate symmetrically.
 
 We also mentioned that our extent guards split the dynamic wind operator into its component parts.
 In Scheme, dynamic-wind is a function which takes three zero-argument functions, rather than being a special form taking three subexpressions; this is the reason for the enclosing lambda in our implementation.
@@ -1750,7 +1749,7 @@ the $\#_\downdownarrows$ and $\#_\upuparrows$ provide the most concise implement
 \subsection{Try-catch-finally}
 \label{subsec:implExn}
 
-We now move on to a demonstration that exception handling can be easily implemented within the SFCC calculus.
+We now move on to a demonstration that exception handling can be easily implemented within $\lambda_{SFCC}$.
 This is the essence of our claim of the unification of exception handling and FCC.
 Since each language has their own idiosyncratic take on exception handling, we will illustrate a few systems, at which point the reader should be prepared to implement their favorite exception system.
 Although most languages offer try-catch constructs as statements, we will offer them as an expression so as not to complicate our grammar.
@@ -1947,9 +1946,9 @@ To get back to MFDC's \textsf{withSubCont} operator, we simply chain these two n
 \label{sec:efficientImpl}
 
 Now that we have developed our semantics, we turn to efficiency concerns.
-We will show that our system need not impose inherent algorithmic complexity penalties.
+We will show that $\lambda_{SFCC}$ need not impose inherent algorithmic complexity penalties.
 In particular, if FCC techniques are not used, then the interpreter will be no slower than a CESK machine: all the cost of FCC is limited to capturing and restoring continuations.
-To demonstrate this, we develop a simple interpreter for the language; we will also note a few implementation details which could further reduce overheads.
+To demonstrate this, we develop a simple interpreter for the language.
 
 \maybePage
 \subsection{Supporting Definitions}
@@ -2148,30 +2147,20 @@ they differ only in that the former is applied when the continuation is delimite
 These are the only two places where the continuation stack can be reduced in size by more than one context, so these are the only places we use the $exitGuard$ function.
 Similar to the $\textsc{app}_K$ rule, the next expression to be evaluated includes a sequence of expressions drawn from extent guards, this time from the $\#_\Downarrow$ guards of the captured continuation.
 
-
 There are a few places where the interpreter could get stuck.
 In an application, if the first expression does not evaluate to a function or continuation, then evaluation cannot continue; this is as normal in the lambda calculus.
 Further, if $splitStack$ is undefined in either $\textsc{c}_\#$ or $\textsc{c}_\blacksquare$, the interpreter will get stuck.
 This situation represents an attempt to capture a continuation which is not delimited anywhere in the continuation.
 This decision prevents unintentional undelimited control capture.
 
-\maybePage
-\subsection{Concrete Implementation}
-
 TODO: meta-continuations as in MFDC. I know there's some research in implementing continuations effectively in Racket (which I may have around here somewhere).
-
-TODO: Since we are using a transition system, it should be clear how to incorporate mutable state into the semantics without much difficulty.
-
-
-
-
 
 
 \maybePage
 \section{Applications}
 \label{sec:applications}
 
-We have previously given a few examples of control structures that can be implemented in the SFCC calculus, but with the exception of try-catch-finally, these were implementations only of other low-level control constructs.
+We have previously given a few examples of control structures that can be implemented in $\lambda_{SFCC}$, but with the exception of try-catch-finally, these were implementations only of other low-level control constructs.
 In this section, we will examine a wide range of higher-level control constructs which could see immediate use in programming.
 We will also examine those control structures found in our literature review which have not already been implemented.
 
@@ -2278,12 +2267,12 @@ $$\textsf{subroutine }e \equiv \texttt{return}\!:\{e\}$$
 
 
 
-TODO zahn's construct.
+%TODO zahn's construct.
 
 
 An additional feature of these implementations is that the ability to perform early exit can be delegated to further functions.
 We used this technique in \S\ref{subsec:intro-to-fcc} to implement foldl/ee.
-We will now give an implementation and reduction sketch of that example in the SFCC calculus.
+We will now give an implementation and reduction sketch of that example in $\lambda_{SFCC}$.
 
 \begin{align*}
 \textbf{foldl/ee} &\equiv
@@ -2335,8 +2324,6 @@ This demonstrates the great potential for reuse of first-class control structure
 &\textbf{false} \\
 \end{align*}
 
-
-TODO if a compiler can perform escape analysis on these labels, then we can compile these structures down to simple gotos
 
 %\maybePage
 %\subsection{Coroutines}
@@ -2532,6 +2519,11 @@ The trick in many cases is passing arguments unevaluated. If we can do this, the
 
 \subsection{Further Work}
 
+Although this paper presents a strong theoretical case for the possibility of reliable first-class control, there is still much work left to be done bridging these results into production programming.
+In particular, it would be best to gain extensive experience with $\lambda_{SFCC}$ in real programming tasks.
+We also expect a serious education campaign would be required to acquaint programmers with these relatively alien techniques.
+Beyond these, there are also interesting theoretical questions we did not have time here to treat.
+
 The system we presented here allowed for only one reduction strategy, but we believe this is not an inherent limitation for the system.
 Instead, it would be interesting to reformulate our dynamics so that we can take full advantage of compatible closure\cite{LambdaWithTypes}
 
@@ -2544,6 +2536,9 @@ We mentioned above that the $\#_\blacksquare$ delimiter may be difficult to assi
 In all likelihood, the operators we have presented are too low-level to be of direct use to users, but will form a framework for implementors to provide slightly higher-level concepts.
 Thus, we expect reasonable restrictions on the available features of $\lambda_{SFCC}$ to be prescribed anyway.
 
+Finally, there are clear questions concerning optimizing compilers, given these new techniques.
+Some uses of first-class control, e.g. our subroutines in \S\ref{subsec:earlyExit}, are functionally equivalent to a program without FCC, but which instead uses simple jumps.
+Further, since subcontinuations are essentially functions, albeit created at runtime, it may be profitable to compile these into real functions at runtime, making use of just0in-time compilation techniques.
 
 
 
@@ -2607,24 +2602,6 @@ Misc:
 %e;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto^*
 %v;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto
 %\F_{p'}^{e;\#_\Uparrow^e\square}v' $$
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

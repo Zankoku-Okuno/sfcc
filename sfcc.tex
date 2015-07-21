@@ -237,8 +237,8 @@ Thus, if the programmer has incomplete knowledge of the documentation or of his 
 
 With FCC, we can present a different interface by combining the effects of the \texttt{open} and \texttt{close} procedures into a single higher-order procedure \texttt{withFile}.
 The \texttt{withFile} procedure opens the file, exposes it only to the \texttt{body} procedure, and ensures that the file will be closed immediately after the body is finished.
-Such an interface is not only smaller, and therefore easier to comprehend, but also guarantees that the file handle is used in accordance with the control-flow structure requirements.
-Simply by interface design, we can ensure\footnote{For reasons of space, we have not shown how to ensure that a file handle does not escape from the body of \texttt{withFile}. A clever, well-known technique takes advantage of a type checker to do this. \cite{StateInHaskell}} that read/write cannot be performed on a closed file and file handles are closed quickly.
+Such an interface is not only smaller, and therefore easier to comprehend, but also guarantees that the file handle is used in accordance with the control-flow requirements.
+Simply by interface design, we can ensure\footnote{For reasons of space, we have not shown how to ensure that a file handle does not escape from the body of \texttt{withFile}. A clever, well-known technique takes advantage of a type checker to do this.\cite{StateInHaskell}} that read/write cannot be performed on a closed file and file handles are closed quickly.
 In this way, any possibility of the aforementioned programmer errors is eliminated.
 Even when control-flow dependencies become complex, FCC is still able to encapsulate the complexity, providing APIs that are resilient even in the face of incomplete programmer knowledge.
 Without first-class control, such guarantees are generally impossible to obtain practically.
@@ -324,6 +324,7 @@ Then, in \S\ref{sec:relationship}, we analyze $\lambda_{SFCC}$ in relation to it
 We also examine its relationship to exception handling (\S\ref{subsec:implExn}) and a few other important FCC systems (\S\ref{subsec:implMisc}).
 In \S\ref{sec:efficientImpl}, we give an alternate formulation of the calculus in terms of a transition system, which can be directly translated into an efficient interpreter (constant overheads aside).
 Finally, we examine a wide range of applications of FCC in \S\ref{sec:applications}, underscoring the effectiveness of FCC as an implementation technique.
+Our conclusions are reiterated in \S\ref{sec:conclusion}, along with related and further work.
 
 
 
@@ -633,7 +634,7 @@ For example, the action of reading a byte from a file is a value of type \texttt
 In this way, Haskell retains the ability to perform side-effects as in imperative languages, but everywhere a side-effect might occur is noted in the (strong) type system.
 Since exceptions are impure, any function that might cause an exception (directly or indirectly) must be an action in the IO monad.
 
-As other authors have noted \cite{ReflectionWithoutRemorse}(FIXME I know I have more direct citations for this), the advantage of monads in Haskell is that we can be guaranteed that only a narrow range of effects can occur within a monadic computation.
+As other authors have noted \cite{DataTypesALaCarte}\cite{TheoremsForFree}, the advantage of monads in Haskell is that we can be guaranteed that only a narrow range of effects can occur within a monadic computation.
 Unfortunately, the number of primitives available in the IO monad in particular is so broad that its presence is not informative in this way.
 Although a value may be in the IO monad only so that it can take advantage of exceptions, we cannot deduce from the type alone that the value will not, for example, delete files from disk.
 Instead, new monads are regularly implemented which give stronger guarantees as to their range of possible behavior.
@@ -1110,7 +1111,7 @@ In the languages we have discussed so far, there has only been one operator whic
 With these constraints, it is simple to document any functions which transitively rely on control operator, or to encode this property with the type system, if possible.
 With the exception of call/cc (\S\ref{undelimControl}), non-local entrance to indistinguishable from a function call, so as long as we constrain ourselves to composable continuations, we need not specially note when captured continuations are restored.
 
-
+TODO
 we must be able to delimit control operators
 separate control structures will need different delimiters in order to stay out of each other's way
 
@@ -2165,35 +2166,18 @@ We have previously given a few examples of control structures that can be implem
 In this section, we will examine a wide range of higher-level control constructs which could see immediate use in programming.
 We will also examine those control structures found in our literature review which have not already been implemented.
 
-Inventory of control structures:
-\begin{itemize}
-\item\ [DONE] abort
-\item\ [DONE] fcontrol
-\item\ [DONE] MFDC
-\item\ [DONE] scope statements
-\item\ [DONE] dynamic-wind
-\item\ [DONE] try/catch/else/finally: typed and untyped, with/without stack trace; with/without rethrow
-\item\ [DONE] cupto
-\item\ [DONE] $\pmFpm$
-\item\ [DONE] capture (without abort)
-%
-\item\ [?] spawn
-\item\ [\^{}] call/cc
-\item\ [?] marker
-\item\ [?] panic
-%
-\item\ [DONE] context manager
-\item\ [DONE] labeled constructs
-\item\ [.] zahn
-\item\ [DONE] conjunction
-\item\ [DONE] anaphoric if
-\item\ [DONE] fluid variables
-\item\ [DONE] subroutines
-\item\ [-] coroutines
-\item\ [DONE] stream
-\item\ [.] amb
-\item\ [.] concurrent algorithms (cooperating threads)
-\end{itemize}
+%Inventory of control structures:
+%\begin{itemize}
+%%
+%\item\ [?] spawn
+%\item\ [\^{}] call/cc
+%\item\ [?] marker
+%\item\ [?] panic
+%%
+%\item\ [.] zahn
+%\item\ [-] coroutines
+%\item\ [.] concurrent algorithms (cooperating threads)
+%\end{itemize}
 
 
 \maybePage
@@ -2239,6 +2223,7 @@ Whenever control enters the body expression, the new value is stored, and whenev
 
 \maybePage
 \subsection{Early Exit}
+\label{subsec:earlyExit}
 
 One difference between functions in imperative and functional languages is that there is no early return from a fucntion in a functional language.
 Those functions which allow early return we will call subroutines.
@@ -2480,6 +2465,7 @@ Now that we have the definitions, we will give an example reduction sketch.
 
 \maybePage
 \section{Conclusion}
+\label{sec:conclusion}
 
 We have developed a calculus, $\lambda_{SFCC}$ which includes first-class control along with additional operators for managing the scope of external resources.
 (TODO FCC is not macro-expressible in the lambda calculus)
@@ -2581,152 +2567,131 @@ Further, since subcontinuations are essentially functions, albeit created at run
 
 
 
-
-\maybePage
-\part{Here There Be Dragons}
-
-NOTE: everything below is in an intermediate state, subject to dramatic change, and probably deletion.
-
-
-
-\section{Reformulation}
-
-Key idea is to specify handlers on both prompt and control operators.
-We automatically invoke the operator's handler, but control may from there be given to the delimiter's handler.
-Essentially, either the control operator has enough information to move the computation along on its own, or else it has enough information to know that it must seek outside help from the delimiter's handler.
-This is our answer to choice (4) from the analysis of delimited continuations; its power comes from its ability to model both cases in a unified way.
-
-
-Exceptions:
-\begin{align*}
-\textsf{panic }e &\equiv
-	\letin{x_{report} = e}{\F_\mathbf{p_0}\lambda \_,\_.x_{report}}
-	\\
-\end{align*}
-
-Undelimited control:
-\begin{align*}
-\textsf{withCont}\;e &\equiv
-	{}^+\F^-_\mathbf{p_0}e
-	\\
-\textsf{abort}\;e &\equiv
-	\textsf{withCont}\;\lambda \_.e
-	\\
-\textsf{callcc}\;e &\equiv
-	\letin{f=e}{\textsf{withCont}\;\lambda k. f\; \angles{\textsf{abort}\;(k\;\square)}}
-	\\
-\end{align*}
-
-Misc:
-\begin{align*}
-\textsf{marker }e &\equiv
-	\letin{f=e, x_p=\nu}{\#_{x_p}f\;x_p} \\
-\textsf{spawn }e &\equiv
-	\letin{f=e}{\textsf{marker }\x_p.f\;\angles{^-\F^+_{x_p}\square}}
-	\\
-\end{align*}
-
-
-%If we get something like $\#_\Downarrow^e\F_p^{\F_{p'}\square}v$,
-%which leads to $\F_p^{e;\#_\Uparrow^e\F_{p'}\square}v$,
-%one might be afraid that that continuation, when called---$\angles{e;\#_\Uparrow^e\F_{p'}\square}\;v'$---will lead to a buildup of $e$ sequenced in a row---perhaps $e;\#_\Uparrow^e\F_{p'}v' \mapsto^* \F_{p'}^{e;(e;\#_\Uparrow^e\square)}v'$.
-%This cannot happen, however, since $e$ will need to be forced to a value before the control operator can capture it.
-%Preferring to capture continuations wherever possible, the correct evaluation sequence is:
-%$$ e;\#_\Uparrow^e\F_{p'}v' \mapsto
-%e;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto^*
-%v;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto
-%\F_{p'}^{e;\#_\Uparrow^e\square}v' $$
-
-
-
-
-
-\section{Extended Example}
-\label{sec:foldl/ee}
-
-TODO file API
-
-TODO pick an example that actually uses capture, though I want to keep some of this analysis
-
-\begin{figure}[H]
-\caption{Accumulation-loop pattern codified}
-\label{fig:foldl/ee}
-
-%(define (foldl/ee zero xs body)
-%   (define mark newCue)
-%   (define (break val) (abort c val))
-%   (handle mark id
-%      (foldl zero xs (body break))))
-
-\begin{subfigure}[b]{0.5\textwidth}
-\begin{Verbatim}[commandchars=\\\[\]]
-(define (all? xs p)
-   (\highlight[foldl/ee] true xs
-      (lambda (out acc x)
-         (if (p x)
-             true
-             (out false)))))
-
-
-
-
-\end{Verbatim}
-\caption{with FCC}
-\end{subfigure}
-~
-\begin{subfigure}[b]{0.5\textwidth}
-\begin{Verbatim}[commandchars=\\\[\]]
-
-define all(xs, p):
-    \highlight[var] acc \highlight[=] true
-    \highlight[label] out
-    \highlight[for] x \highlight[in] xs\highlight[:]
-        if (p x):
-            \highlight[acc =] true
-        else:
-            \highlight[acc =] false
-            \highlight[break] out
-    \highlight[return acc]
-\end{Verbatim}
-\caption{without FCC}
-\end{subfigure}
-
-
-\end{figure}
-
-Our example is particularly simple, so several simplifying transformations might be automatically made by the programmer.
-We have specifically not made these transformations because we would like to examine the accumulation-loop pattern, regardless of the complexity of the problem to which it is applied.
-
-The lines-of-code savings here are not particularly interesting.
-For one, this is purely due to surface syntax.
-More importantly, as the body becomes larger, the comparison will show less difference in line count.
-The important thing to note is that there are fewer ``moving parts'' in the example with FCC -- fewer fixed things that could be misplaced during further maintenance.
-Furthermore, even if the test imperative language had foldl already implemented, we cannot re-use it here, so we are forced to repeat -- manually or by copy-paste -- the body of foldl.
-
-note the possibility of nesting calls to foldl/ee.
-if Contoy were typed, we show that this is a pure function.
-
-\section{Applications}
-\label{application}
-
-
-\subsection{Software Transactions}
-
-transactions recur, apparently: they're in pep 343 as well as D
-
-
-\section{Further Directions}
-
-type system: probably using predicative System F$_\omega$. The type of cues would be a two-place type constructor, enforcing purity with monads would rule out control-impure handlers and guards. Cues and subcontunations may need to account for co-/contravariance during type inference.
-
-sandboxing: restrict the environment in which a piece of code executes. as long as there is no way to generate new prompts and you can determine (at least dynamically before you call the untrusted code) which prompts are available to the untrusted code, then you can prevent the untrusted code from gaining control over the rest of the continuation. These are easy things to verify. Of course, the client (source of untrusted code) can still make use of advanced control constructs.
-
-compilation: JIT subcontinuations into functions
-
-Variations:
-Should we distinguish a true abort (without possibility of re-instatement) from a capturing abort? If for example we only closed a file on true abort, how would we manage closing the file when the captured continuation is no longer needed?
-
-
+%
+%\maybePage
+%\part{Here There Be Dragons}
+%
+%NOTE: everything below is in an intermediate state, subject to dramatic change, and probably deletion.
+%
+%
+%
+%\section{Reformulation}
+%
+%Key idea is to specify handlers on both prompt and control operators.
+%We automatically invoke the operator's handler, but control may from there be given to the delimiter's handler.
+%Essentially, either the control operator has enough information to move the computation along on its own, or else it has enough information to know that it must seek outside help from the delimiter's handler.
+%This is our answer to choice (4) from the analysis of delimited continuations; its power comes from its ability to model both cases in a unified way.
+%
+%
+%Exceptions:
+%\begin{align*}
+%\textsf{panic }e &\equiv
+%	\letin{x_{report} = e}{\F_\mathbf{p_0}\lambda \_,\_.x_{report}}
+%	\\
+%\end{align*}
+%
+%Undelimited control:
+%\begin{align*}
+%\textsf{withCont}\;e &\equiv
+%	{}^+\F^-_\mathbf{p_0}e
+%	\\
+%\textsf{abort}\;e &\equiv
+%	\textsf{withCont}\;\lambda \_.e
+%	\\
+%\textsf{callcc}\;e &\equiv
+%	\letin{f=e}{\textsf{withCont}\;\lambda k. f\; \angles{\textsf{abort}\;(k\;\square)}}
+%	\\
+%\end{align*}
+%
+%Misc:
+%\begin{align*}
+%\textsf{marker }e &\equiv
+%	\letin{f=e, x_p=\nu}{\#_{x_p}f\;x_p} \\
+%\textsf{spawn }e &\equiv
+%	\letin{f=e}{\textsf{marker }\x_p.f\;\angles{^-\F^+_{x_p}\square}}
+%	\\
+%\end{align*}
+%
+%
+%%If we get something like $\#_\Downarrow^e\F_p^{\F_{p'}\square}v$,
+%%which leads to $\F_p^{e;\#_\Uparrow^e\F_{p'}\square}v$,
+%%one might be afraid that that continuation, when called---$\angles{e;\#_\Uparrow^e\F_{p'}\square}\;v'$---will lead to a buildup of $e$ sequenced in a row---perhaps $e;\#_\Uparrow^e\F_{p'}v' \mapsto^* \F_{p'}^{e;(e;\#_\Uparrow^e\square)}v'$.
+%%This cannot happen, however, since $e$ will need to be forced to a value before the control operator can capture it.
+%%Preferring to capture continuations wherever possible, the correct evaluation sequence is:
+%%$$ e;\#_\Uparrow^e\F_{p'}v' \mapsto
+%%e;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto^*
+%%v;\F_{p'}^{e;\#_\Uparrow^e\square}v' \mapsto
+%%\F_{p'}^{e;\#_\Uparrow^e\square}v' $$
+%
+%
+%
+%
+%
+%\section{Extended Example}
+%\label{sec:foldl/ee}
+%
+%TODO file API
+%
+%TODO pick an example that actually uses capture, though I want to keep some of this analysis
+%
+%\begin{figure}[H]
+%\caption{Accumulation-loop pattern codified}
+%\label{fig:foldl/ee}
+%
+%%(define (foldl/ee zero xs body)
+%%   (define mark newCue)
+%%   (define (break val) (abort c val))
+%%   (handle mark id
+%%      (foldl zero xs (body break))))
+%
+%\begin{subfigure}[b]{0.5\textwidth}
+%\begin{Verbatim}[commandchars=\\\[\]]
+%(define (all? xs p)
+%   (\highlight[foldl/ee] true xs
+%      (lambda (out acc x)
+%         (if (p x)
+%             true
+%             (out false)))))
+%
+%
+%
+%
+%\end{Verbatim}
+%\caption{with FCC}
+%\end{subfigure}
+%~
+%\begin{subfigure}[b]{0.5\textwidth}
+%\begin{Verbatim}[commandchars=\\\[\]]
+%
+%define all(xs, p):
+%    \highlight[var] acc \highlight[=] true
+%    \highlight[label] out
+%    \highlight[for] x \highlight[in] xs\highlight[:]
+%        if (p x):
+%            \highlight[acc =] true
+%        else:
+%            \highlight[acc =] false
+%            \highlight[break] out
+%    \highlight[return acc]
+%\end{Verbatim}
+%\caption{without FCC}
+%\end{subfigure}
+%
+%
+%\end{figure}
+%
+%Our example is particularly simple, so several simplifying transformations might be automatically made by the programmer.
+%We have specifically not made these transformations because we would like to examine the accumulation-loop pattern, regardless of the complexity of the problem to which it is applied.
+%
+%The lines-of-code savings here are not particularly interesting.
+%For one, this is purely due to surface syntax.
+%More importantly, as the body becomes larger, the comparison will show less difference in line count.
+%The important thing to note is that there are fewer ``moving parts'' in the example with FCC -- fewer fixed things that could be misplaced during further maintenance.
+%Furthermore, even if the test imperative language had foldl already implemented, we cannot re-use it here, so we are forced to repeat -- manually or by copy-paste -- the body of foldl.
+%
+%note the possibility of nesting calls to foldl/ee.
+%if Contoy were typed, we show that this is a pure function.
+%
 
 
 

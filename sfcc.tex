@@ -976,7 +976,7 @@ One difficulty of describing FCC is that there are so many different variants in
 We will consider here three broad groups of delimited control operators.
 In the following, we will often make reference to academic literature;
 lest the reader think we have abandoned our focus on production programming languages, note that all of these operators have been implemented in Racket \cite{RacketReference}.
-In fact, every delimited control operator in Racket is either presented here directly, or else can be easily simulated\footnote{TODO: I should find out if they are in fact simulated}.
+In fact, every delimited control operator in Racket is either presented here directly, or else can be easily simulated.
 
 In what follows, we will see that Racket implements a veritable zoo of control operators.
 There are of course additional delimited control operators available in the literature, often with unique features of questionable utility.
@@ -1072,7 +1072,7 @@ Dynamic-wind is a form which takes three blocks\footnote{Technically, it takes t
 Control then attempts to enter the body-block, but whenever the body is entered, whether initially or because it is placed back onto the stack, the before-block is executed first.
 Furthermore, no matter how control exits the body, the after-block will be evaluated.
 
-TODO where multiple prompts alone cannot guarantee setup or cleanup when a dynamic extent is entered/exited, the addition of dynamic-wind gives us this capability
+%TODO where multiple prompts alone cannot guarantee setup or cleanup when a dynamic extent is entered/exited, the addition of dynamic-wind gives us this capability
 
 It should be clear then, that try-finally is a limit case of dynamic-wind, where the before-block is empty.
 Conversely, dynamic-wind generalized try-finally by not only allowing code to be registered for execution on exit, but also on entrance.
@@ -2153,8 +2153,9 @@ Further, if $splitStack$ is undefined in either $\textsc{c}_\#$ or $\textsc{c}_\
 This situation represents an attempt to capture a continuation which is not delimited anywhere in the continuation.
 This decision prevents unintentional undelimited control capture.
 
-TODO: meta-continuations as in MFDC. I know there's some research in implementing continuations effectively in Racket (which I may have around here somewhere).
-
+This particular interpreter was presented with simplicity in mind, so that the $splitStack$ function will take linear time on the size of the stack.
+However, we can use metacontinuation technique as in \cite{MFDC} (FIXME I'm sure they got it from somewhere else) to reduce the cost to linear time in the number of delimiters in the stack.
+This requires a slight transformation only on the internal representation of the control stack, which is why we did not involve those complications in our formalism.
 
 \maybePage
 \section{Applications}
@@ -2261,7 +2262,7 @@ The abort is delimited by an installed handler which, just as with subroutines, 
 l\!: \{e\} &\equiv \letin{p = \nu, l = \x.\A_px}{\#_p^{\lambda \_,x.x}e} \\
 \end{align*}
 
-The advantage of this construct over the labeled loop constructs of existing languages is that any expression may not be labeled and exited early from, rather than only those expressions and statements the language designer was able to predict the use of and encode into the language.
+The advantage of this construct over the labeled loop constructs of existing languages is that any expression may now be labeled and exited early from, rather than only those expressions and statements the language designer was able to predict the use of and encode into the language.
 For example, with a labeled exit construct, it is simple to implement subroutines as above:
 $$\textsf{subroutine }e \equiv \texttt{return}\!:\{e\}$$
 
@@ -2285,9 +2286,11 @@ We will now give an implementation and reduction sketch of that example in $\lam
 \end{align*}
 
 Notice in the reduction sketch how the $break$ function is passed to another function.
-In particular, it is passed on to the reducer function, so that the $test$ function in $\textbf{all}$ can manipulate control flow as it needs.
+In particular, it is passed on to the reducing function, so that the $test$ function in $\textbf{all}$ can manipulate control flow as it needs.
 We have chosen this example precisely because it shows that the ability to abort can be delegated to a function which was not even anticipated when we implemented \textbf{foldl/ee}.
 This demonstrates the great potential for reuse of first-class control structures.
+
+We now give a short reduction sketch of foldl/ee in $\lambda_{SFCC}$:
 \begin{align*}
 &\textbf{all}\;(\x.x>0)\;[0, 1] \\
 %
@@ -2393,7 +2396,7 @@ $$\textbf{factors} = \lambda a. [1..a] >\!>= \x.
 \maybePage
 \subsection{Subinterpreters}
 
-In some cases it is useful to isolate the execution of some piece of code from the main process, e.g. to run third-party code.
+In some cases it is useful to isolate the execution of some piece of code from the main process, e.g. to run third-party code, as in a REPL.
 It is possible to call on the operating system to start a new process which runs the code, but this is usually overkill if the untrusted code does not run concurrently.
 Instead, we could execute it in the same process by invoking a subinterpreter.
 
@@ -2516,6 +2519,29 @@ TODO do we meet the standards from section 5?
 TODO macro-expressibility is not really that great, we'd like functional expressiblity.
 The trick in many cases is passing arguments unevaluated. If we can do this, there's no problem, and even if we can't, we can protect the argument from evaluation by wrapping it in a thunk before passing.
 
+\subsection{Related Work}
+
+A history of continuations as a means of investigating the formal properties of languages is given in \cite{DiscoverContinuations}.
+Since they appear in several areas of research, they were independently discovered on several occasions.
+
+First-class control operators as we might recognize them begin with the \textbf{J} operator in \cite{ISWIM}.
+This had the distinction of capturing a continuation which could be used multiple times.
+Though it was an ad-hoc introduction meant to model goto statements, it is the ancestor of all of today's FCC operators, including exception handling and call/cc.
+
+After this, variations on FCC operators abounded, especially delimited control operators.
+The clearest treatment of first-order delimited control is given in \cite{PromptApplication}, on which we have based much of our formalism.
+Higher-order delimited control is examined by \cite{Gunter:1995} in the context of ML; their system allows the introduction of new prompts at runtime, and provides a type system for this technique.
+Throw and catch are given in \cite{InterpreterForScheme}, and their generalization to fcontrol in \cite{HandlingControl}.
+Since this explosion of operators, work has been done examining the relationships between these operators \cite{ControlDelimitersHierarchy}\cite{Filinski94}\cite{DelimDynBinding}\cite{GreatEscape}.
+In this area, \cite{MFDC} is most important for our paper, as it unifies nearly all these control operators short of try-catch and fcontrol.
+
+Work in bringing security to call/cc was done in \cite{continuationsInProcObjs}, which led to the development of dynamic-wind.
+A detailed analysis of the shortcomings of exception handling as regards performing cleanup is given in\cite{WeimerNecula08}.
+As far as this author can find, we are the first to apply these same security considerations to delimited control.
+Recently, work has been done in the efficient implementation of FCC.
+Efficient implementations are given for the dynamically-typed Racket is given in \cite{RacketImplFCC}, and for the statically-typed Scala in \cite{ScalaImplFCC}.
+
+
 
 \subsection{Further Work}
 
@@ -2539,6 +2565,14 @@ Thus, we expect reasonable restrictions on the available features of $\lambda_{S
 Finally, there are clear questions concerning optimizing compilers, given these new techniques.
 Some uses of first-class control, e.g. our subroutines in \S\ref{subsec:earlyExit}, are functionally equivalent to a program without FCC, but which instead uses simple jumps.
 Further, since subcontinuations are essentially functions, albeit created at runtime, it may be profitable to compile these into real functions at runtime, making use of just0in-time compilation techniques.
+
+
+
+
+
+
+
+
 
 
 

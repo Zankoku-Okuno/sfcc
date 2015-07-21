@@ -174,8 +174,7 @@ Operators that place a delimiter on the stack are called \emph{delimiting operat
 While the above definition is accessible to implementors, it leaves the advantages of first-class control opaque to the programmer.
 The advantage of FCC is that \emph{it allows for the abstraction and reuse of any pattern of control flow}.
 That is, any control flow structure, no matter how complex, can always be centralized to reduce maintenance costs.
-First-class control is thus a natural extension of existing high-level languages, which have already brought the power of abstraction to patterns of algorithm, data, and syntax.
-%FIXME do I want to include module organization in the above list?
+First-class control is thus a natural extension of existing high-level languages, which have already brought the power of abstraction to patterns of algorithm, data, module, and syntax.
 
 As a simple example, a common pattern is an accumulation loop with early-exit.
 We can use FCC to efficiently implement this pattern and reuse it without difficulty, as in Figure~\ref{fig:ex-foldl/ee}.
@@ -296,7 +295,7 @@ Almost all languages which offer exception handling, a limited form of non-local
 Since $\lambda_{SFCC}$ is capable of implementing various exception handling mechanisms, we immediately gain a formal specification of these control structures.
 
 There are a few production languages which do offer a resource management operator, \texttt{dynamic-wind}, alongside FCC, though these languages are relatively little-used.
-Our advantage against these is that we have a formal specification\footnote{Though there is a formalization of Scheme's \texttt{dynamic-wind} in (CITE scheme-opsem), it is \textit{post-hoc}, not part of the language standards.}, and our system is general enough to easily implement their breadth of operators, and more besides.
+Our advantage against these is that we have a formal specification\footnote{Though there is a formalization of Scheme's \texttt{dynamic-wind} in \cite{SchemeOpSem}, it is \textit{post-hoc}, not part of the language standards.}, and our system is general enough to easily implement their breadth of operators, and more besides.
 
 Thanks to our system's similarities to \cite{Gunter:1995} and \cite{MFDC}, we expect a practical type system to be able to rule out several classes of error related to the use of FCC.
 Note that to achieve practicality, type systems of this sort must make a small compromise in their soundness: this is the same compromise that exists in unchecked exception systems.
@@ -371,15 +370,11 @@ Manual memory management is not only expensive to develop, but also contributes 
 
 In Java, C\#, and similar languages which use garbage collection, destructors\footnote{Some languages call these ``finalizers'', but the result is essentially the same.} are called when an object is collected.
 Unfortunately, the time to detect, and therefore clean up unreachable objects is non-deterministic.\cite{JavaStandard}\cite{cSharpStandard}
-%(TODO also, there are no guarantees about which objects are cleaned before others) 
 Whenever the resource is not in physically infinite supply, the garbage collector will race the program to maintain the illusion of automatic cleanup.\cite{WeimerNecula08}
 Further, the order in which objects are finalized during garbage collection cannot be predicted, so the technique is unsuitable when there are ordering dependencies between several objects' finalizers.\cite{WeimerNecula08}
 %Depending on the implementation, the teardown code may never be executed, such as when a program terminates without having collected all its allocated memory.
 This should not be surprising, since garbage collectors are meant mainly to free up memory during program execution rather than as a means of registering callbacks.
 In short, the use of finalizers tied to the the garbage collection cycle is not a generally suitable technique for timely and correct resource management.
-%This author finds it unlikely that any cross-platform garbage collector can be trusted to reliably call destructors appropriately.
-%Since the common case is that memory needs to be reclaimed without cleanup, the advantages of garbage collection commonly outweigh the risks due to the resulting non-deterministic RAII.
-
 
 RAII succeeds well when faced with managing external resources such as database connections, but when faced with internal logical state management, it offers no advantage.
 For example, in languages with garbage collection, the lack of determinism can mean that RAII is even technically unsuitable.
@@ -566,7 +561,7 @@ It is only when a definition is duplicated that the possibility for error increa
 \subsection{Defer Statements}
 \label{defer}
 
-The languages D and Go share a similar language feature whereby expressions may be registered to be evaluated before the call stack unwinds (CITE D and Go standards). We will call these statements ``defer statements'' after Go terminology\footnote{D calls them ``scope guard statements''.}. This particular feature is quite new, so there are several differences between the two languages, though they share the same idea.
+The languages D and Go share a similar language feature whereby expressions may be registered to be evaluated before the call stack unwinds \cite{DReference}\cite{GoLanguage}. We will call these statements ``defer statements'' after Go terminology\footnote{D calls them ``scope guard statements''.}. This particular feature is quite new, so there are several differences between the two languages, though they share the same idea.
 
 In the case of Go, each stack frame maintains an additional stack of unevaluated expressions. When control reaches a defer statement, $\texttt{defer}\;e$, the expression \textit{e} is pushed to the stack, but not evaluated. When the stack frame is popped (whether from normal return or due to an exception), the expressions it had built up are evaluated in the reverse order they were pushed.
 
@@ -592,7 +587,7 @@ Nonetheless, the effect is very similar, as the registered expressions will be e
 
 The ability for D to discriminate between normal and abnormal exit is very useful for performing atomic operations.
 For example, Figure~\ref{Dscope} shows a program which performs an operation on a file and logs the result.
-When multiple error-prone operations must be performed together atomically, this technique can save significant development time (CITE that D article) compared to try-finally or RAII (which are also available in D).
+When multiple error-prone operations must be performed together atomically, this technique can save significant development time compared to try-finally or RAII\cite{DExceptionSafety} (which are also available in D).
 
 \begin{figure}[H]
 \caption{D-style defer statement}
@@ -1078,7 +1073,7 @@ Dynamic-wind is a form which takes three blocks\footnote{Technically, it takes t
 Control then attempts to enter the body-block, but whenever the body is entered, whether initially or because it is placed back onto the stack, the before-block is executed first.
 Furthermore, no matter how control exits the body, the after-block will be evaluated.
 
-TODO where multiple prompts alone cannot guarantee setup or cleanup when a dynamic extent is entered/exited, the addition of dynamic-wind gives us this capability
+%TODO where multiple prompts alone cannot guarantee setup or cleanup when a dynamic extent is entered/exited, the addition of dynamic-wind gives us this capability
 
 It should be clear then, that try-finally is a limit case of dynamic-wind, where the before-block is empty.
 Conversely, dynamic-wind generalized try-finally by not only allowing code to be registered for execution on exit, but also on entrance.
@@ -1108,7 +1103,7 @@ Thus, we must be able to give resource management code both directly at the usag
 
 Most control structures that intercept non-local control flow also intercept local control flow.
 Nevertheless, the scope statements in D (\S\ref{defer}) and monads (\S\ref{subsec:exceptionMonads}) are able to discriminate between local and non-local exit\footnote{Since monads can only simulate non-local control flow, their ability to distinguish relies on encoding control flow into data.}.
-Although we did not discuss it in the text, Python is also able to detect local exit with the try-else construct. (CITE python docs)
+Although we did not discuss it in the text, Python is also able to detect local exit with the try-else construct.\cite{pythonDocs}
 The ability to take different actions depending on the nature of control flow is useful for software transactions.
 
 The same way try-catch-finally (\S\ref{try-finally}) can be straightforwardly audited for exception safety, we would like our language to be easily checked for the existence of non-local control flow.
@@ -2343,33 +2338,36 @@ This demonstrates the great potential for reuse of first-class control structure
 
 TODO if a compiler can perform escape analysis on these labels, then we can compile these structures down to simple gotos
 
+%\maybePage
+%\subsection{Coroutines}
+%
+%\begin{align*}
+%\textsf{coroutine}\;e \equiv{}
+%&\textsf{let }p = \nu, \\
+%  &\quad\; k_0 = \angles{
+%    \square; \\
+%    &\qquad\qquad \letin{\texttt{yield}=\x.{\A_px}}{e}; \\
+%    &\qquad\qquad \textsf{throw }\texttt{"stop iteration"}} \\
+%  &\quad\; c = \nu_C\;k_0 \\
+%  &\textsf{in }
+%  \x.\#_p^{\lambda k,v.\,c:=k;\,v}\: ^*\!c\;x \\
+%\end{align*}
+%
+%once you have coroutines, cooperating threads are easy to implement,
+%and so is the nondeterminism monad
+
 \maybePage
-\subsection{Coroutines}
-
-\begin{align*}
-\textsf{coroutine}\;e \equiv{}
-&\textsf{let }p = \nu, \\
-  &\quad\; k_0 = \angles{
-    \square; \\
-    &\qquad\qquad \letin{\texttt{yield}=\x.{\A_px}}{e}; \\
-    &\qquad\qquad \textsf{throw }\texttt{"stop iteration"}} \\
-  &\quad\; c = \nu_C\;k_0 \\
-  &\textsf{in }
-  \x.\#_p^{\lambda k,v.\,c:=k;\,v}\: ^*\!c\;x \\
-\end{align*}
-
-once you have coroutines, cooperating threads are easy to implement,
-and so is the nondeterminism monad
-
 \subsection{Streams and Nondeterministic Choice}
 
-A stream is similar to a coroutine in that it incrementally computes values, but unlike a coroutine, a stream is an immutable value, like a list.
+A stream is a list structure whose values are computed on demand.\cite{SICP}
+We will think of our streams here primarily as functions which can return multiple times.
 Our introduction form for streams takes an expression and make \texttt{yield} available within the expression.
 A call to \texttt{yield} produces the next item in the stream.
 We access the elements of a stream by applying \textbf{uncons}, which results either in a cons cell, $(head:tail)$, where $head$ is the next element in the stream, and $tail$ is the rest of the stream, or else the special value \textbf{nil}, when the end of the stream is reached.
 
-Our implementation is similar to our coroutines, except that we do not use mutable state.
-Instead, we use a handler to return the aborted value along with the rest of the stream as a continuation.
+In our implementation, we create a new prompt, just as in our subroutines.
+The yield operator takes the role of the return operator.
+This time, the handler is used to return the yielded value along with the rest of the stream as a continuation.
 The rest of the stream must be delimited again, with the same handler, so we use the Y-combinator to allow the hander to recursively install itself.
 
 \begin{align*}
@@ -2381,10 +2379,29 @@ The rest of the stream must be delimited again, with the same handler, so we use
 \textbf{uncons} &\equiv \lambda s.\,s\;() \\
 \end{align*}
 
-TODO Once we have access to streams, it is simple to implement non-deterministic choice using stream monad.
-TODO the stream monad implements amb very easily
+Now that we have streams, it is simple to implement the \emph{amb} operator, which performs non-deterministic choice.
+Essentially, the \textbf{amb} operator accepts a list of options, then chooses just the correct elements to ensure the following computation does not fail.
 
-TODO? an example
+Of course, the technique cannot be magic, but it does rely on the backtracking ability of streams.
+First, \textbf{amb} turns a list into a stream by yielding each element insuccession.
+Then, we have two functions, \textbf{succeed} and \textbf{fail} which signal the corresponding situations to the implementation.
+Finally, we use the $>\!>=$ operator to combine computations using \textbf{amb}.
+What it does is to accumulate all the selections that succeeded (in general, a single \textbf{amb} computation might itself produce multiple possible results).
+\begin{align*}
+\textbf{amb} &\equiv \x s. \textbf{map}\;\texttt{yield}\;xs \\
+\textbf{succeed} &\equiv \x. [x] \\
+\textbf{fail} &\equiv [] \\
+>\!>= &\equiv \lambda x,k. \textbf{fold}\;\textbf{concat}\;(\textbf{map}\;k\;x)\;[] \\
+\end{align*}
+
+As an example, we can use this technique to generate a list of all pairs of factors for a given number.
+We simply select a number up to the input and another up to the first, and fail whenever the pair does not multiply to produce the input.
+$$\textbf{factors} = \lambda a. [1..a] >\!>= \x.
+                             [1..x] >\!>= \lambda y.
+                             \textsf{if }x*y == a
+                             \textsf{ then }\textbf{succeed}\;(x, y)
+                             \textsf{ else }\textbf{fail}$$
+
 
 \maybePage
 \subsection{Subinterpreters}
@@ -2513,9 +2530,19 @@ TODO macro-expressibility is not really that great, we'd like functional express
 The trick in many cases is passing arguments unevaluated. If we can do this, there's no problem, and even if we can't, we can protect the argument from evaluation by wrapping it in a thunk before passing.
 
 
+\subsection{Further Work}
 
+The system we presented here allowed for only one reduction strategy, but we believe this is not an inherent limitation for the system.
+Instead, it would be interesting to reformulate our dynamics so that we can take full advantage of compatible closure\cite{LambdaWithTypes}
 
+Since our system was derived from typed systems\cite{MFDC}\cite{Gunter:1995}, we believe it would be possible to assign meaningful types to the terms in $\lambda_{SFCC}$.
+The difference for our system is that we allow for a handler to be installed at the delimiting operator.
+Whereas in the aforementioned type systems, the type of prompts involved only one type variable, for the type expected by the continuation at the point the delimiter is installed, $\lambda_{SFCC}$ will likely require a second type variable parameterizing the type expected by the handler then installed.
 
+We also find it likely that a type system may need to impose restrictions on the features in our operators.
+We mentioned above that the $\#_\blacksquare$ delimiter may be difficult to assign a type, but if there is a single, set handler installed by the runtime system with $\#_\blacksquare$, then the question of its type may be made trivial.
+In all likelihood, the operators we have presented are too low-level to be of direct use to users, but will form a framework for implementors to provide slightly higher-level concepts.
+Thus, we expect reasonable restrictions on the available features of $\lambda_{SFCC}$ to be prescribed anyway.
 
 
 
